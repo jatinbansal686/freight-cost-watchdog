@@ -1,0 +1,52 @@
+note_id,date,applies_to,note
+SCALE-N001,2025-01-15,Shimla-Manali,"Local elections in Shimla led to temporary road closures near the Shimla-Manali corridor, though no freight rate change was reported."
+SCALE-N002,2025-01-22,Jodhpur-Bikaner,"A regional trade fair in Bikaner increased local traffic congestion around Jodhpur-Bikaner, but transporters confirmed rates remained stable."
+SCALE-N003,2025-02-05,Varanasi-Prayagraj,Seasonal crop harvesting near Varanasi briefly increased warehouse activity; the Varanasi-Prayagraj freight route saw no meaningful cost impact.
+SCALE-N004,2025-02-12,Mysuru-Mangaluru,"A minor bridge repair on the Mysuru-Mangaluru stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N005,2025-02-19,Siliguri-Darjeeling,Weather authorities issued an advisory for Darjeeling district; the Siliguri-Darjeeling corridor reported normal freight operations throughout.
+SCALE-N006,2025-02-26,Ajmer-Kota,"A new logistics park was announced near Ajmer, unrelated to current freight pricing on the Ajmer-Kota route."
+SCALE-N007,2025-03-05,Dehradun-Haridwar,Municipal works in Dehradun rerouted some local traffic; freight costs on Dehradun-Haridwar were unaffected according to local transporters.
+SCALE-N008,2025-03-12,Bhilai-Raipur,A cultural festival concluded in Raipur without disruption to the Bhilai-Raipur freight corridor or its usual rates.
+SCALE-N009,2025-03-19,Jamshedpur-Dhanbad,"Local elections in Jamshedpur led to temporary road closures near the Jamshedpur-Dhanbad corridor, though no freight rate change was reported."
+SCALE-N010,2025-03-10,Nagpur-Indore,A sudden spike in diesel prices across central India significantly raised freight transportation costs on the Nagpur-Indore route this week.
+SCALE-N011,2025-03-26,Aurangabad-Nanded,"A regional trade fair in Nanded increased local traffic congestion around Aurangabad-Nanded, but transporters confirmed rates remained stable."
+SCALE-N012,2025-04-02,Belagavi-Hubballi,Seasonal crop harvesting near Belagavi briefly increased warehouse activity; the Belagavi-Hubballi freight route saw no meaningful cost impact.
+SCALE-N013,2025-04-09,Warangal-Nizamabad,"A minor bridge repair on the Warangal-Nizamabad stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N014,2025-04-16,Thrissur-Kochi,Weather authorities issued an advisory for Kochi district; the Thrissur-Kochi corridor reported normal freight operations throughout.
+SCALE-N015,2025-04-23,Vellore-Salem,"A new logistics park was announced near Vellore, unrelated to current freight pricing on the Vellore-Salem route."
+SCALE-N016,2025-04-30,Rajahmundry-Guntur,Municipal works in Rajahmundry rerouted some local traffic; freight costs on Rajahmundry-Guntur were unaffected according to local transporters.
+SCALE-N017,2025-01-15,Bareilly-Moradabad,A cultural festival concluded in Moradabad without disruption to the Bareilly-Moradabad freight corridor or its usual rates.
+SCALE-N018,2025-01-22,Gorakhpur-Ayodhya,"Local elections in Gorakhpur led to temporary road closures near the Gorakhpur-Ayodhya corridor, though no freight rate change was reported."
+SCALE-N019,2025-02-05,Rewa-Satna,"A regional trade fair in Satna increased local traffic congestion around Rewa-Satna, but transporters confirmed rates remained stable."
+SCALE-N020,2025-02-12,Sagar-Jabalpur,Seasonal crop harvesting near Sagar briefly increased warehouse activity; the Sagar-Jabalpur freight route saw no meaningful cost impact.
+SCALE-N021,2025-02-19,Ujjain-Dewas,"A minor bridge repair on the Ujjain-Dewas stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N022,2025-02-26,Panipat-Karnal,Weather authorities issued an advisory for Karnal district; the Panipat-Karnal corridor reported normal freight operations throughout.
+SCALE-N023,2025-03-05,Hisar-Rohtak,"A new logistics park was announced near Hisar, unrelated to current freight pricing on the Hisar-Rohtak route."
+SCALE-N024,2025-03-12,Bathinda-Ludhiana,Municipal works in Bathinda rerouted some local traffic; freight costs on Bathinda-Ludhiana were unaffected according to local transporters.
+SCALE-N025,2025-03-17,Lucknow-Kanpur,"Heavy monsoon flooding damaged sections of the Lucknow-Kanpur highway, forcing long detours and sharply higher freight costs this week."
+SCALE-N026,2025-03-19,Alwar-Bharatpur,A cultural festival concluded in Bharatpur without disruption to the Alwar-Bharatpur freight corridor or its usual rates.
+SCALE-N027,2025-03-26,Solapur-Kolhapur,"Local elections in Solapur led to temporary road closures near the Solapur-Kolhapur corridor, though no freight rate change was reported."
+SCALE-N028,2025-04-02,Latur-Osmanabad,"A regional trade fair in Osmanabad increased local traffic congestion around Latur-Osmanabad, but transporters confirmed rates remained stable."
+SCALE-N029,2025-04-09,Tirupati-Nellore,Seasonal crop harvesting near Tirupati briefly increased warehouse activity; the Tirupati-Nellore freight route saw no meaningful cost impact.
+SCALE-N030,2025-04-16,Karimnagar-Khammam,"A minor bridge repair on the Karimnagar-Khammam stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N031,2025-04-23,Bilaspur-Korba,Weather authorities issued an advisory for Korba district; the Bilaspur-Korba corridor reported normal freight operations throughout.
+SCALE-N032,2025-04-30,Durgapur-Asansol,"A new logistics park was announced near Durgapur, unrelated to current freight pricing on the Durgapur-Asansol route."
+SCALE-N033,2025-03-24,Patna-Ranchi,"A new toll surcharge was introduced on the Patna-Ranchi corridor this week, substantially increasing transporters' freight costs."
+SCALE-N034,2025-01-15,Cuttack-Puri,Municipal works in Cuttack rerouted some local traffic; freight costs on Cuttack-Puri were unaffected according to local transporters.
+SCALE-N035,2025-01-22,Rourkela-Sambalpur,A cultural festival concluded in Sambalpur without disruption to the Rourkela-Sambalpur freight corridor or its usual rates.
+SCALE-N036,2025-02-05,Imphal-Kohima,"Local elections in Imphal led to temporary road closures near the Imphal-Kohima corridor, though no freight rate change was reported."
+SCALE-N037,2025-02-12,Shillong-Agartala,"A regional trade fair in Agartala increased local traffic congestion around Shillong-Agartala, but transporters confirmed rates remained stable."
+SCALE-N038,2025-02-19,Gangtok-Kalimpong,Seasonal crop harvesting near Gangtok briefly increased warehouse activity; the Gangtok-Kalimpong freight route saw no meaningful cost impact.
+SCALE-N039,2025-02-26,Alappuzha-Kollam,"A minor bridge repair on the Alappuzha-Kollam stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N040,2025-03-05,Erode-Tiruppur,Weather authorities issued an advisory for Tiruppur district; the Erode-Tiruppur corridor reported normal freight operations throughout.
+SCALE-N041,2025-03-31,Surat-Vadodara,Festival season demand caused a temporary capacity shortage and higher freight rates on the Surat-Vadodara route this week.
+SCALE-N042,2025-03-12,Nagercoil-Kanyakumari,"A new logistics park was announced near Nagercoil, unrelated to current freight pricing on the Nagercoil-Kanyakumari route."
+SCALE-N043,2025-03-19,Bikaner-Sri Ganganagar,Municipal works in Bikaner rerouted some local traffic; freight costs on Bikaner-Sri Ganganagar were unaffected according to local transporters.
+SCALE-N044,2025-03-26,Firozabad-Etawah,A cultural festival concluded in Etawah without disruption to the Firozabad-Etawah freight corridor or its usual rates.
+SCALE-N045,2025-04-02,Muzaffarpur-Darbhanga,"Local elections in Muzaffarpur led to temporary road closures near the Muzaffarpur-Darbhanga corridor, though no freight rate change was reported."
+SCALE-N046,2025-04-09,Gaya-Bodh Gaya,"A regional trade fair in Bodh Gaya increased local traffic congestion around Gaya-Bodh Gaya, but transporters confirmed rates remained stable."
+SCALE-N047,2025-04-16,Puducherry-Cuddalore,Seasonal crop harvesting near Puducherry briefly increased warehouse activity; the Puducherry-Cuddalore freight route saw no meaningful cost impact.
+SCALE-N048,2025-04-07,Coimbatore-Madurai,Fuel surcharges were applied by transporters on the Coimbatore-Madurai route this week due to rising diesel costs.
+SCALE-N049,2025-04-23,Anand-Nadiad,"A minor bridge repair on the Anand-Nadiad stretch caused short delays, absorbed by transporters without any rate change."
+SCALE-N050,2025-04-30,Junagadh-Porbandar,Weather authorities issued an advisory for Porbandar district; the Junagadh-Porbandar corridor reported normal freight operations throughout.
+SCALE-N051,2025-01-15,Bhavnagar-Diu,"A new logistics park was announced near Bhavnagar, unrelated to current freight pricing on the Bhavnagar-Diu route."

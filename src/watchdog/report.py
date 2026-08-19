@@ -14,7 +14,7 @@ from watchdog.detect import candidates_only, flag_candidates
 from watchdog.explain import ReasonContext, build_reason, find_near_miss, load_cache, save_cache
 from watchdog.io_utils import load_notes, load_shipments
 from watchdog.llm import CostTracker, LLMClient
-from watchdog.notes.enrich import EnrichedNote, build_notes_index
+from watchdog.notes.enrich import EnrichedNote, NoteCache
 from watchdog.notes.gate import run_gate
 from watchdog.notes.index import NotesIndex
 from watchdog.weekly import aggregate_weekly
@@ -65,10 +65,11 @@ def run_pipeline(
     tracker = CostTracker()
     llm_client = LLMClient(cfg.llm, tracker)
 
-    enriched_list = build_notes_index(notes_df, llm_client, cache_path=notes_cache_path, use_cache=use_cache)
-    enriched_by_id: dict[str, EnrichedNote] = {n.note_id: n for n in enriched_list}
-
+    # Retrieval is built first and needs no LLM call (notes/index.py embeds raw note text only).
     notes_index = NotesIndex(notes_df, top_k=cfg.retrieval.top_k)
+    note_cache = NoteCache(notes_cache_path, use_cache=use_cache)
+    notes_lookup = notes_df.set_index("note_id")
+    enriched_by_id: dict[str, EnrichedNote] = {}
 
     explanation_cache_path = outputs_dir / "explanation_cache.json"
     explanation_cache = load_cache(explanation_cache_path) if use_cache else {}
@@ -82,7 +83,22 @@ def run_pipeline(
         week_of: date = row["week_of"].date()
 
         shortlist = notes_index.query(route, route_type, week_of.isoformat())
-        shortlisted_notes = [enriched_by_id[item["note_id"]] for item in shortlist]
+
+        # Lazy enrichment: only notes retrieval actually surfaced get an LLM call, and only on a
+        # cache miss (NoteCache.get_or_enrich). A note never retrieved never reaches this line.
+        shortlisted_notes = []
+        for item in shortlist:
+            note_id = item["note_id"]
+            if note_id not in enriched_by_id:
+                note_row = notes_lookup.loc[note_id]
+                enriched_by_id[note_id] = note_cache.get_or_enrich(
+                    llm_client,
+                    note_id,
+                    note_row["date"].date().isoformat(),
+                    note_row["applies_to"],
+                    note_row["note"],
+                )
+            shortlisted_notes.append(enriched_by_id[note_id])
 
         gate_result = run_gate(route, week_of, shortlisted_notes, cfg.notes.open_ended_note_weeks)
 
@@ -135,6 +151,8 @@ def run_pipeline(
                 "matched_note_id": gate_result.matched_note_id,
             }
         )
+
+    note_cache.save()
 
     if explain_mode != "template":
         save_cache(explanation_cache_path, explanation_cache)

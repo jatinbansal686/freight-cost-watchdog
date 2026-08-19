@@ -51,7 +51,7 @@ shipment_records.csv
 [4] RAG retrieval            ChromaDB over context_notes.csv     <- LLM/AI layer (notes/index.py)
         |
         v
-[5] LLM note understanding   extract window / cost direction / evidence quote  (notes/enrich.py)
+[5] LLM note understanding   lazy, retrieval-triggered, cached by note_id       (notes/enrich.py)
         |
         v
 [6] DETERMINISTIC GATE       route AND window AND raises-cost AND verbatim evidence (notes/gate.py)
@@ -190,6 +190,27 @@ authority -- retrieval's job here is demonstrating the architecture and producin
 narrowing what the gate is allowed to consider. If Chroma or its embedding model fails to load
 (e.g. no network on first run), `notes/index.py` falls back to an unranked all-notes list with the
 same effect on the gate.
+
+### Enrichment is lazy, not eager
+
+Notes are indexed for retrieval first; LLM enrichment occurs lazily when a retrieved note is first
+needed, and results are cached by `note_id`. Concretely: `notes/index.py`'s embedding index is
+built straight from the raw `context_notes.csv` text -- no LLM call. Only once a candidate's
+retrieval query actually surfaces a given note does `notes/enrich.py`'s `NoteCache.get_or_enrich`
+look it up; on a cache miss that's the one and only point an LLM call happens for that note, and
+the result is written back into the same per-`note_id` cache (`outputs/notes_index.json`) used
+before. A note retrieval never surfaces never reaches the LLM at all.
+
+We avoid paying for LLM processing on notes that are never relevant. On this project's 10-note
+corpus this doesn't change *how many* notes end up enriched -- `top_k=10` (see above) means every
+candidate's retrieval already returns the whole corpus, so a cold run still enriches all 10, just
+triggered by the first candidate's retrieval instead of at pipeline startup. The benefit shows up
+as the corpus grows past `top_k`: a 1,000-note corpus with `top_k=10` would still cost at most
+10 LLM calls per distinct note actually retrieved across the run, not 1,000 calls up front.
+
+This is a RAG-based AI pipeline with deterministic validation, not an autonomous agent: the LLM
+only interprets note prose and ranks/phrases; `notes/gate.py` alone decides `flagged` and
+`matched_note_id`, unchanged by this.
 
 ## 7. Q&A interface (stretch goal)
 

@@ -1,5 +1,13 @@
 """LLM note understanding: one call per note, cached to outputs/notes_index.json.
 
+Enrichment is lazy and retrieval-triggered (see `NoteCache.get_or_enrich`): a note is only ever
+sent to the LLM once it has actually been returned by `notes/index.py`'s retrieval for some
+candidate AND is not already in the cache. A note that retrieval never surfaces never causes an
+LLM call. This keeps the architecture correct for a much larger corpus (cheap embedding retrieval
+narrows a small relevant set before any LLM spend) even though, on this project's 10-note corpus
+with `retrieval.top_k=10`, every note is retrieved for the first candidate anyway -- so a cold run
+still enriches all 10, same as before, just triggered by retrieval instead of at startup.
+
 The LLM extracts judgment calls that need reading the prose (does this describe a cost rise? does
 it actually apply to routes in our dataset? what's the verbatim evidence?). It does NOT determine
 `effective_from` -- that is always the note's own `date` column, set in code, because in this
@@ -22,8 +30,6 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import date
 from pathlib import Path
-
-import pandas as pd
 
 from watchdog.llm import LLMClient
 
@@ -131,30 +137,35 @@ def enrich_note(client: LLMClient, note_id: str, note_date: str, applies_to: str
     raise NoteValidationError(f"{note_id}: failed to produce a valid enrichment after retries: {last_error}")
 
 
-def build_notes_index(notes_df: pd.DataFrame, client: LLMClient, cache_path: Path, use_cache: bool = True) -> list[EnrichedNote]:
-    cached: dict[str, dict] = {}
-    if use_cache and cache_path.exists():
-        cached = json.loads(cache_path.read_text())
+class NoteCache:
+    """Per-note-id enrichment cache -- the only thing that can trigger an LLM call.
 
-    results: list[EnrichedNote] = []
-    changed = False
-    for _, row in notes_df.iterrows():
-        note_id = row["note_id"]
-        note_date = row["date"].date().isoformat()
-        applies_to = row["applies_to"]
-        raw_text = row["note"]
+    Same on-disk format as before (outputs/notes_index.json): a flat {note_id: {...fields...}}
+    dict, one entry per note. `get_or_enrich` is called only for notes retrieval has actually
+    surfaced for a candidate; a note never retrieved never reaches this method, so it never
+    reaches `enrich_note`, so it never costs an LLM call.
+    """
 
-        if note_id in cached:
-            results.append(EnrichedNote(**cached[note_id]))
-            continue
+    def __init__(self, cache_path: Path, use_cache: bool = True):
+        self.cache_path = cache_path
+        self._cached: dict[str, dict] = {}
+        if use_cache and cache_path.exists():
+            self._cached = json.loads(cache_path.read_text())
+        self._changed = False
+
+    def get_or_enrich(
+        self, client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str
+    ) -> EnrichedNote:
+        if note_id in self._cached:
+            return EnrichedNote(**self._cached[note_id])
 
         enriched = enrich_note(client, note_id, note_date, applies_to, raw_text)
-        results.append(enriched)
-        cached[note_id] = asdict(enriched)
-        changed = True
+        self._cached[note_id] = asdict(enriched)
+        self._changed = True
+        return enriched
 
-    if changed:
-        cache_path.parent.mkdir(parents=True, exist_ok=True)
-        cache_path.write_text(json.dumps(cached, indent=2, sort_keys=True))
-
-    return results
+    def save(self) -> None:
+        if not self._changed:
+            return
+        self.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self.cache_path.write_text(json.dumps(self._cached, indent=2, sort_keys=True))

@@ -7,5 +7,6 @@ venv/
 *.egg-info/
 .DS_Store
 outputs/repro/
+outputs/scale_demo/
 .chroma/
 chroma_db/
