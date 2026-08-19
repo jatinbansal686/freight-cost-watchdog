@@ -1,0 +1,9 @@
+[project]
+name = "freight-cost-watchdog"
+version = "0.1.0"
+description = "FreightTiger case study: flags unusual route-week freight cost rises, checks context notes via RAG, and refuses to guess a reason when none exists."
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

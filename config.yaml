@@ -1,0 +1,44 @@
+# Configuration for freight-cost-watchdog.
+# Values under `baselines` are the assignment's own definitions (not ours to change).
+# Everything under the "OUR IMPLEMENTATION CHOICES" marker is a judgment call we made where
+# the brief is silent -- documented again, with rationale, in README.md.
+
+paths:
+  shipments: data/shipment_records.csv
+  notes: data/context_notes.csv
+  sample_format: data/sample_output_format_v2.csv
+  output: output.csv
+
+baselines:
+  own_history_weeks: 8       # trailing weeks, strictly prior, no look-ahead -- assignment-specified
+  peer_scope: route_type     # peer average = other routes with same route_type -- assignment-specified
+  peer_excludes_self: true   # assignment-specified
+
+# --- OUR IMPLEMENTATION CHOICES (not specified by the assignment) ---
+detector:
+  own_history_threshold_pct: 7.0   # candidate if vs_own_history >= this
+  peer_threshold_pct: 20.0         # OR vs_similar_routes >= this
+  # ~97th percentile of observed weekly changes across all 728 route-weeks. See README.
+
+notes:
+  open_ended_note_weeks: 8   # window for a note with no explicit end date: effective_from -> +8 weeks
+                              # evidence-anchored to [4, 18] weeks by the sample output -- see README
+  near_miss_days: 14         # a failed-gate note is only cited in `reason` as a "near miss" within this window
+
+llm:
+  base_url: https://integrate.api.nvidia.com/v1
+  model: openai/gpt-oss-20b   # verified working against the supplied NVIDIA NIM key this session
+  temperature: 0              # determinism is a graded guardrail -- never raised above 0
+  top_p: 1
+  max_tokens: 400
+  max_retries: 4
+  retry_backoff_seconds: 2
+
+retrieval:
+  backend: chromadb
+  top_k: 10   # = every note in this 10-note corpus. See README: a smaller top_k (tried 5 first)
+              # measurably dropped genuine "All Routes" matches (e.g. N003 for Mumbai-Delhi
+              # 2025-06-02) because their text doesn't mention a route name, so a route-name-heavy
+              # query ranked irrelevant same-route notes above them. Chroma still ranks every
+              # note and the trace records the ranking; nothing is truncated out of the gate's view.
+  embedding_model: all-MiniLM-L6-v2   # Chroma's built-in local ONNX embedding, no API cost
