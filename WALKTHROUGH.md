@@ -29,8 +29,9 @@ Use **Chennai-Bangalore, 2025-03-10** as the running example.
   elevated on 2025-03-10 and 03-17 -- two weeks *after* the note's own window ends.
 - Naively: "there's a note about this route describing a cost rise" would justify all four weeks.
   That's wrong for the last two -- the flood physically ended.
-- The gate's condition 2 (window overlap) catches this: N001's `effective_to` is 2025-03-08, which
-  doesn't overlap the Mar 10 or Mar 17 Mon-Sun weeks. Both stay `Yes`, correctly.
+- The gate's condition 2 (window overlap) catches this: N001's `effective_to` is 2025-03-09 (the
+  LLM reads the note's "roads were passable again by Mar 9" as the end date), which doesn't overlap
+  the Mar 10 or Mar 17 Mon-Sun weeks. Both stay `Yes`, correctly.
 - Then show the *other* direction of the same trap: N003 (diesel, "starting this week," **no end
   date given**). Left unbounded, it would silently justify 18 of the 27 candidates -- including the
   graders' own sample row, **Mumbai-Pune 2025-09-15**, which they publish as unexplained. We
