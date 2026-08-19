@@ -6,6 +6,7 @@ is a graded guardrail, never raised regardless of caller.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -50,6 +51,34 @@ class CostTracker:
         return out
 
 
+_ISO_DATE_TAIL_RE = re.compile(r"\d{4}-\d{2}-\d{2}\.$")
+
+
+def _looks_complete(content: str) -> bool:
+    """True if truncated content still ends at a real sentence boundary.
+
+    Two lexical traps this guards against:
+    - A truncated decimal (e.g. "...a 22." cut off before "5%") ends in digit + period, which
+      looks like a sentence end but isn't -- rejected, unless the digits form a full ISO date
+      ("...on 2025-05-05.", a genuine sentence ending that shows up throughout this dataset's
+      reasons and would otherwise trigger a needless retry).
+    - A truncation landing mid-quote leaves a dangling *open* quote as the last character. `"`
+      is normally a fine sentence-ending character (a quoted clause closing), but only if it's
+      actually closing something -- an odd total count of `"` means the last one is unmatched.
+    """
+    stripped = content.strip()
+    if not stripped:
+        return False
+    if stripped.count('"') % 2 == 1:
+        return False
+    last = stripped[-1]
+    if last not in ".!?\"'":
+        return False
+    if last == "." and len(stripped) >= 2 and stripped[-2].isdigit() and not _ISO_DATE_TAIL_RE.search(stripped):
+        return False
+    return True
+
+
 class LLMClient:
     def __init__(self, cfg: LLMConfig, tracker: CostTracker | None = None):
         self.cfg = cfg
@@ -89,9 +118,9 @@ class LLMClient:
                 truncated = resp.choices[0].finish_reason == "length"
                 if content and not truncated:
                     return content.strip()
-                if content and truncated and content.strip().rstrip()[-1:] in ".!?\"'":
+                if content and truncated and _looks_complete(content):
                     return content.strip()  # cut off right at a sentence boundary -- usable
-                budget = min(budget * 2, 1600)
+                budget = min(budget * 2, self.cfg.retry_max_tokens_cap)
                 last_error = RuntimeError(f"truncated response (finish_reason=length), retrying with max_tokens={budget}")
             except Exception as exc:  # noqa: BLE001 -- NIM free tier can raise rate-limit/transient errors
                 last_error = exc

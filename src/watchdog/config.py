@@ -36,6 +36,7 @@ class DetectorConfig:
 class NotesConfig:
     open_ended_note_weeks: int
     near_miss_days: int
+    enrichment_max_tokens: int
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,13 @@ class LLMConfig:
     max_tokens: int
     max_retries: int
     retry_backoff_seconds: float
+    retry_max_tokens_cap: int
     api_key: str | None
+
+
+@dataclass(frozen=True)
+class ExplainConfig:
+    max_tokens: int
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,7 @@ class Config:
     llm: LLMConfig
     retrieval: RetrievalConfig
     qa: QAConfig
+    explain: ExplainConfig
 
 
 def load_config(path: str | Path = REPO_ROOT / "config.yaml") -> Config:
@@ -87,5 +95,9 @@ def load_config(path: str | Path = REPO_ROOT / "config.yaml") -> Config:
     llm = LLMConfig(**llm_raw, api_key=os.environ.get("NVIDIA_API_KEY"))
     retrieval = RetrievalConfig(**raw["retrieval"])
     qa = QAConfig(**raw["qa"])
+    explain = ExplainConfig(**raw["explain"])
 
-    return Config(paths=paths, baselines=baselines, detector=detector, notes=notes, llm=llm, retrieval=retrieval, qa=qa)
+    return Config(
+        paths=paths, baselines=baselines, detector=detector, notes=notes, llm=llm,
+        retrieval=retrieval, qa=qa, explain=explain,
+    )

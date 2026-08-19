@@ -226,6 +226,7 @@ def build_reason(
     mode: str,
     client: LLMClient | None,
     cache: dict[str, str],
+    max_tokens: int = 500,
 ) -> str:
     if mode == "template" or client is None or not client.available:
         return _clean(build_template_reason(ctx))
@@ -234,7 +235,7 @@ def build_reason(
     if key in cache:
         return _clean(cache[key])
 
-    llm_text = client.complete(LLM_SYSTEM_PROMPT, _llm_prompt(ctx), purpose="explanation", max_tokens=500)
+    llm_text = client.complete(LLM_SYSTEM_PROMPT, _llm_prompt(ctx), purpose="explanation", max_tokens=max_tokens)
     if llm_text and _validate_llm_reason(llm_text, ctx):
         cache[key] = llm_text
         return _clean(llm_text)

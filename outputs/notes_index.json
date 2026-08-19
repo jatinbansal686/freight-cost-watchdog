@@ -38,7 +38,7 @@
     "date": "2024-03-11",
     "effective_from": "2024-03-11",
     "effective_to": null,
-    "evidence_span": "A new toll plaza was commissioned on a national highway stretch",
+    "evidence_span": "A new toll plaza was commissioned",
     "indicates_cost_increase": true,
     "note_id": "N004",
     "raw_text": "A new toll plaza was commissioned on a national highway stretch, but the affected routes are not part of this dataset."
@@ -82,7 +82,7 @@
     "date": "2025-06-09",
     "effective_from": "2025-06-09",
     "effective_to": null,
-    "evidence_span": "No significant disruptions were reported on the Kolkata-Bhubaneswar corridor this quarter; freight movement remained normal.",
+    "evidence_span": "freight movement remained normal.",
     "indicates_cost_increase": false,
     "note_id": "N008",
     "raw_text": "No significant disruptions were reported on the Kolkata-Bhubaneswar corridor this quarter; freight movement remained normal."
@@ -104,7 +104,7 @@
     "date": "2025-10-27",
     "effective_from": "2025-10-27",
     "effective_to": null,
-    "evidence_span": "compliance costs were absorbed by transporters without a rate change",
+    "evidence_span": "compliance costs were absorbed by transporters without a rate change.",
     "indicates_cost_increase": false,
     "note_id": "N010",
     "raw_text": "A new vehicle tracking mandate was introduced for commercial fleets; compliance costs were absorbed by transporters without a rate change."

@@ -97,6 +97,7 @@ def run_pipeline(
                     note_row["date"].date().isoformat(),
                     note_row["applies_to"],
                     note_row["note"],
+                    max_tokens=cfg.notes.enrichment_max_tokens,
                 )
             shortlisted_notes.append(enriched_by_id[note_id])
 
@@ -125,7 +126,7 @@ def run_pipeline(
             near_miss_note=near_miss_note,
             near_miss_check=near_miss_check,
         )
-        reason = build_reason(ctx, mode=explain_mode, client=llm_client, cache=explanation_cache)
+        reason = build_reason(ctx, mode=explain_mode, client=llm_client, cache=explanation_cache, max_tokens=cfg.explain.max_tokens)
         if row["low_confidence"]:
             reason += f" (Note: only {int(row['baseline_weeks_used'])} prior week(s) of history available for this route, below the usual 8-week baseline.)"
 

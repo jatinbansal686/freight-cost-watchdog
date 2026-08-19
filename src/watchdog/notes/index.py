@@ -15,7 +15,7 @@ import pandas as pd
 
 
 class NotesIndex:
-    def __init__(self, notes_df: pd.DataFrame, top_k: int = 5):
+    def __init__(self, notes_df: pd.DataFrame, top_k: int = 10):
         self.notes_df = notes_df
         self.top_k = top_k
         self._collection = None

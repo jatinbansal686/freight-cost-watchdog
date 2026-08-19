@@ -24,6 +24,8 @@ notes:
   open_ended_note_weeks: 8   # window for a note with no explicit end date: effective_from -> +8 weeks
                               # evidence-anchored to [4, 18] weeks by the sample output -- see README
   near_miss_days: 14         # a failed-gate note is only cited in `reason` as a "near miss" within this window
+  enrichment_max_tokens: 600  # note_enrichment call's budget -- larger than llm.max_tokens because the
+                               # model spends part of it on internal reasoning before the JSON payload
 
 llm:
   base_url: https://integrate.api.nvidia.com/v1
@@ -33,6 +35,10 @@ llm:
   max_tokens: 400
   max_retries: 4
   retry_backoff_seconds: 2
+  retry_max_tokens_cap: 1600   # ceiling for LLMClient.complete's truncation-retry budget doubling
+
+explain:
+  max_tokens: 500   # build_reason's LLM phrasing budget for a single-candidate explanation
 
 retrieval:
   backend: chromadb
