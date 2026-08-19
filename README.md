@@ -11,13 +11,17 @@ when none exists.
 
 ```
 pip install -r requirements.txt
+export PYTHONPATH=src                                 # required for every command below -- the
+                                                        # package isn't pip-installed, only pytest
+                                                        # picks up src/ automatically (pyproject.toml)
 cp .env.example .env        # fill in NVIDIA_API_KEY
 python -m watchdog.cli run                          # full run, writes output.csv
 python -m watchdog.cli run --explain-mode template   # zero LLM calls, identical verdicts/numbers
 python -m watchdog.cli run --no-cache                # ignore caches, force a cold run
 python -m watchdog.cli repro                         # 3x reproducibility check -> REPRO.md
 python -m watchdog.cli cost-log                      # one full cold run -> outputs/token_cost_log.md
-python -m eval.run_eval                              # labelled-set + hallucination audit
+python -m watchdog.cli ask "why did X get pricier in <month>?"   # Q&A over the results, see §7
+python -m eval.run_eval                              # graders' sample + hallucination audit (independent) + regression snapshot (drift-only)
 pytest                                                # unit/integration tests (no API key needed)
 ```
 
@@ -187,7 +191,53 @@ narrowing what the gate is allowed to consider. If Chroma or its embedding model
 (e.g. no network on first run), `notes/index.py` falls back to an unranked all-notes list with the
 same effect on the gate.
 
-## 7. How I convinced myself it was right
+## 7. Q&A interface (stretch goal)
+
+```
+python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"   # one-shot
+python -m watchdog.cli ask                                                          # interactive
+```
+
+Reads the artefacts `run` already wrote (`output.csv`, `outputs/weekly_metrics.csv`,
+`data/context_notes.csv`) -- it does not re-run the pipeline or re-query the vector index. Same
+division of labor as everywhere else in this project: **code decides what's in scope, the LLM only
+phrases it.**
+
+- `ask.py::parse_question` deterministically extracts a route (exact name, or a city name that
+  narrows to one or more routes -- e.g. "Delhi" matches all three routes containing it, and the
+  answer is told to cover each separately) and an optional month/year.
+- `ask.py::build_context` filters `weekly_metrics.csv`/`output.csv` down to just those rows. No
+  route recognized, or a date window with zero matching rows, returns a fixed message and **skips
+  the LLM call entirely** -- the same "no data -> say so" rule as the gate, applied to Q&A.
+- The LLM gets only the filtered rows (plus the full text of any cited note) and phrases an answer
+  from them. `temperature=0`, tracked through the same `CostTracker` as the rest of the pipeline
+  (`purpose="qa"`).
+
+**A real bug this caught, and how it's handled.** Live-testing an ambiguous "how is the Delhi route
+doing" question (3 matching routes), the model at different times: (a) silently dropped one route
+from its answer with `finish_reason=stop` -- not truncated, it just didn't comply with the "cover
+every route" instruction -- and (b) stated "Delhi-Jaipur: 3 flagged weeks, all unexplained" when one
+of those three is in fact justified by N003. Neither is the kind of thing `notes/gate.py`'s four
+fixed conditions can catch, because free-form multi-sentence prose isn't a small enough surface to
+verify the way a single `flagged`/`matched_note_id` pair is. Rather than try to parse and correct
+the model's sentences, every answer is followed by a **deterministic "Ground truth" footer** --
+one line per route in scope, computed directly from `output.csv`'s own rows (flagged count,
+justified count + note ids, unexplained count) -- so a reader can catch any slip by comparing the
+two, the same spot-check the brief itself asks graders to do. This is a known, disclosed limitation
+of the Q&A layer, not a solved problem: the prose can still be locally wrong; only the footer is
+guaranteed correct.
+
+```
+$ python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"
+The price jump in early March 2025 was explained by heavy flooding on the Chennai-Bangalore
+highway, which forced longer detours and higher trip costs (see note N001). Subsequent weeks in
+March also saw higher costs, but those increases were not linked to a specific event in the data.
+
+Ground truth (verify the answer above against this):
+- Chennai-Bangalore: 3 flagged week(s), 1 justified (N001), 2 unexplained.
+```
+
+## 8. How I convinced myself it was right
 
 - **The three sample rows reproduce exactly**, to the digit, on `cost_per_tonne_km`,
   `vs_own_history`, `vs_similar_routes`, `flagged` and `matched_note_id`
@@ -197,17 +247,34 @@ same effect on the gate.
   rejected, improvement/normalisation rejected, out-of-dataset rejected (the N004 shape), a valid
   match accepted, no note passing yields a blank `matched_note_id`, non-verbatim evidence rejected,
   and the N003 open-ended window tested both active and expired.
-- **`eval/run_eval.py`** scores the full output against a hand-labelled `eval/expected_verdicts.csv`
-  for all 27 candidates, then runs a **zero-tolerance hallucination audit**: for every
-  `No (justified)` row it independently re-derives the gate check from the committed note cache
-  (not from what the pipeline itself claimed) and fails the run on any mismatch. It also prints a
-  citation count per note -- the seven distractors sit at zero.
+- **`eval/run_eval.py`** runs three checks, reported separately because they carry different
+  weight, not lumped into one pass/fail:
+  1. **Graders' sample check** -- the 3 rows FreightTiger actually published in
+     `data/sample_output_format_v2.csv`. This is the only genuinely *external* ground truth in the
+     eval: we didn't produce these labels, FreightTiger did, so a match here is real validation.
+  2. **Zero-tolerance hallucination audit** -- for every `No (justified)` row, independently
+     re-derives the gate check from the committed note cache (`outputs/notes_index.json`), not from
+     what `output.csv` itself claims, and fails the run on any mismatch. Also prints a citation
+     count per note -- the seven distractors sit at zero.
+  3. **Regression snapshot** -- `eval/expected_verdicts.csv`'s other 24 rows. Auditing this file
+     honestly: these are a transcription of this project's own committed `output.csv`, not an
+     independently hand-labelled set, so a match here proves *no drift*, not *correctness*. It's
+     still useful (a future code change that silently flips a verdict fails loudly) but it does not
+     carry the same evidentiary weight as (1) or (2), and the eval output now says so explicitly
+     rather than presenting all 27 rows as one undifferentiated "labelled set."
 - **What I did *not* verify**: the 7%/20% thresholds are a judgment call, not derived from a
   labelled ground truth of "real" anomalies. `Short` and `Long` peer groups have only one peer
   route each, so `vs_similar_routes` for those routes is noisier than for `Medium`. Weekly figures
   rest on only 3-5 shipments each.
+- **On "numeric fields we grade":** the brief calls `vs_own_history`/`vs_similar_routes` numeric
+  fields, but `output.csv` writes them as descriptive strings (`"+29.5% vs this route's past
+  average"`) because that's the exact format FreightTiger's own `sample_output_format_v2.csv` uses
+  for those columns -- matching the given contract took priority over a literal reading of "numeric."
+  The raw floats used to compute those strings are not lost: they're in
+  `outputs/weekly_metrics.csv`'s `vs_own_history` / `vs_similar_routes` columns for anyone grading
+  numerically.
 
-## 8. Reproducibility
+## 9. Reproducibility
 
 `python -m watchdog.cli repro` runs the pipeline 3x, clearing the prose cache (not the note
 enrichment cache -- that's deterministic factual extraction, not style) between runs so the LLM
@@ -218,7 +285,7 @@ randomness could enter is the LLM, and `temperature=0` there; `--explain-mode te
 the same verdicts and numbers with **zero** LLM calls, which is the structural proof that
 determinism doesn't depend on the model cooperating.
 
-## 9. Cost
+## 10. Cost
 
 See `outputs/token_cost_log.md` for the full breakdown from one cold run (both caches cleared) over
 the entire shipment file: **10 notes to enrich + 27 candidates to explain = 37 "logical" LLM
@@ -230,7 +297,7 @@ OpenAI list price (it's open-weight); the log's "rough equivalent" uses the publ
 rate from [OpenRouter](https://openrouter.ai/openai/gpt-oss-20b) -- $0.03/1M input, $0.13/1M output
 tokens, checked 2026-08-19 -- as a stand-in, cited in `cli.py`.
 
-## 10. Limitations
+## 11. Limitations
 
 - The 7%/20% candidacy thresholds and the 14-day near-miss window are our judgment calls, not
   derived from labelled ground truth.

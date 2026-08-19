@@ -59,6 +59,11 @@ def output_df(pipeline_result):
     return pipeline_result["output_df"]
 
 
+@pytest.fixture(scope="session")
+def weekly_metrics_df(pipeline_result):
+    return pipeline_result["weekly_metrics_df"]
+
+
 def make_shipment_row(shipment_id, origin, destination, route_type, date, qty, dist, cost, material="X", transporter="T"):
     return {
         "shipment_id": shipment_id,

@@ -58,13 +58,30 @@ Use **Chennai-Bangalore, 2025-03-10** as the running example.
   relevance is the honest fix. This is exactly the kind of thing the reproducibility/eval harness
   is for: it caught a real correctness bug, not just a demo bug.
 
-## 5. How I checked it (1 min)
+## 5. Q&A stretch goal, if there's time (1 min)
 
-Three sample rows reproduce to the digit. One test per gate guardrail (wrong route, wrong window,
-"not affected," improved/normal, out-of-dataset, valid match, blank-when-unexplained,
-non-verbatim-evidence-rejected, open-ended-window-both-directions). `eval/run_eval.py` runs a
-zero-tolerance hallucination audit that independently re-derives every justified verdict from the
-committed note cache and prints a citation count per note -- the seven distractor notes sit at
-zero. `watchdog.cli repro` runs the pipeline 3x with the prose cache cleared; every column except
-`reason` is identical across runs, and `--explain-mode template` reproduces the same verdicts and
-numbers with zero LLM calls.
+```
+python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"
+```
+
+Same "code decides scope, LLM only phrases" split as the pipeline itself: a deterministic parser
+picks the route/period out of the question and filters `output.csv`/`weekly_metrics.csv` to just
+those rows -- no match means a fixed "no data" message and zero LLM calls, never a guess. The
+answer is followed by a small deterministic "Ground truth" line per route, added because live
+testing caught the model itself both dropping a route from a multi-route answer and once
+misstating a justified/unexplained count -- free-form prose isn't as verifiable as `gate.py`'s four
+fixed conditions, so the footer is what makes any slip visible instead of trusted.
+
+## 6. How I checked it (1 min)
+
+Three sample rows -- the only ground truth FreightTiger actually gave us -- reproduce to the digit.
+One test per gate guardrail (wrong route, wrong window, "not affected," improved/normal,
+out-of-dataset, valid match, blank-when-unexplained, non-verbatim-evidence-rejected, open-ended-
+window-both-directions). `eval/run_eval.py` runs three checks and reports them separately rather
+than as one score: the graders' 3-row sample (independent), a zero-tolerance hallucination audit
+that independently re-derives every justified verdict from the committed note cache (also
+independent, prints a citation count per note -- the seven distractor notes sit at zero), and a
+27-row regression snapshot which is explicitly labelled as drift-detection against our own
+committed output, not independent grading. `watchdog.cli repro` runs the pipeline 3x with the prose
+cache cleared; every column except `reason` is identical across runs, and `--explain-mode template`
+reproduces the same verdicts and numbers with zero LLM calls.

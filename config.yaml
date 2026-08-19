@@ -42,3 +42,9 @@ retrieval:
               # query ranked irrelevant same-route notes above them. Chroma still ranks every
               # note and the trace records the ranking; nothing is truncated out of the gate's view.
   embedding_model: all-MiniLM-L6-v2   # Chroma's built-in local ONNX embedding, no API cost
+
+qa:
+  max_tokens: 400   # ask.py's LLM phrasing budget (stretch-goal Q&A feature, not assignment-
+                     # specified). Kept as its own setting rather than reusing llm.max_tokens because
+                     # a Q&A answer covering several routes needs more room than a single-candidate
+                     # pipeline explanation does -- see README Q&A section.

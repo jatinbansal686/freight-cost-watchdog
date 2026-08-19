@@ -1,6 +1,18 @@
-"""The assignment's "show a check": a small hand-labelled set scored against output.csv, plus a
-zero-tolerance hallucination audit that independently re-derives every "No (justified)" verdict
-from the committed note cache -- it does not just trust what the pipeline claims.
+"""The assignment's "show a check": three tiers, in order of how independent each one actually is.
+
+1. Graders' sample check -- the 3 rows given to us in data/sample_output_format_v2.csv. This is
+   the ONLY externally-sourced ground truth in this file: it comes from FreightTiger, not from our
+   own pipeline, so a match here is genuine external validation, not self-agreement.
+2. Hallucination audit -- for every "No (justified)" row, independently re-derives the gate's
+   decision from outputs/notes_index.json (the raw note cache), not from what output.csv itself
+   claims. This is independent of the pipeline's own output even though it isn't externally
+   sourced, because it recomputes the verdict from underlying facts rather than diffing labels.
+3. Regression snapshot -- eval/expected_verdicts.csv's other 24 rows are a transcription of this
+   project's own committed output.csv, not an independently hand-labelled ground truth (auditing
+   this file against a fresh read caught that it was byte-identical to output.csv's own columns
+   for all but the 3 graders' rows). It still has real value -- it fails loudly if a future code
+   change silently changes a verdict -- but it is NOT proof of correctness, only proof of no drift.
+   Reported separately from (1) so the two are never conflated.
 
     python -m eval.run_eval
 """
@@ -22,10 +34,42 @@ from watchdog.config import load_config  # noqa: E402
 
 ALL_NOTE_IDS = [f"N{i:03d}" for i in range(1, 11)]
 
+# The 3 rows FreightTiger actually gave us in data/sample_output_format_v2.csv, transcribed by
+# hand because that file is not valid CSV (see tests/test_output_format.py) -- same transcription
+# as tests/test_sample_rows.py::SAMPLE_ROWS, duplicated here rather than imported so this script
+# has no dependency on the tests/ package. This is genuine external ground truth: FreightTiger
+# published these flagged/matched_note_id values, we did not derive them from our own output.
+GRADERS_SAMPLE = [
+    {"route": "Delhi-Jaipur", "week_of": "2024-11-11", "flagged": "Yes", "matched_note_id": ""},
+    {"route": "Ahmedabad-Mumbai", "week_of": "2025-01-20", "flagged": "No (justified)", "matched_note_id": "N002"},
+    {"route": "Mumbai-Pune", "week_of": "2025-09-15", "flagged": "Yes", "matched_note_id": ""},
+]
+
 
 def load_enriched_notes() -> dict[str, EnrichedNote]:
     raw = json.loads((REPO_ROOT / "outputs" / "notes_index.json").read_text())
     return {nid: EnrichedNote(**fields) for nid, fields in raw.items()}
+
+
+def score_against_graders_sample(output: pd.DataFrame) -> int:
+    """The only check in this file scored against ground truth we did not produce ourselves."""
+    mismatches = 0
+    for expected in GRADERS_SAMPLE:
+        match = output[(output["route"] == expected["route"]) & (output["week_of"] == expected["week_of"])]
+        if len(match) != 1:
+            print(f"MISSING from output.csv: {expected['route']} {expected['week_of']} (given by FreightTiger)")
+            mismatches += 1
+            continue
+        row = match.iloc[0]
+        got_note = "" if pd.isna(row["matched_note_id"]) else row["matched_note_id"]
+        if row["flagged"] != expected["flagged"] or got_note != expected["matched_note_id"]:
+            print(
+                f"MISMATCH {expected['route']} {expected['week_of']}: got flagged={row['flagged']!r} "
+                f"matched_note_id={got_note!r}, FreightTiger's sample says flagged={expected['flagged']!r} "
+                f"matched_note_id={expected['matched_note_id']!r}"
+            )
+            mismatches += 1
+    return mismatches
 
 
 def score_against_labels(output: pd.DataFrame, expected: pd.DataFrame) -> int:
@@ -106,23 +150,36 @@ def main() -> None:
           f"unexplained: {(output['flagged'] == 'Yes').sum()}")
     print()
 
-    print("=== Labelled-set check ===")
-    mismatches = score_against_labels(output, expected)
-    print(f"{len(expected) - mismatches}/{len(expected)} labelled rows match." if mismatches else "All labelled rows match.")
+    print("=== 1. Graders' sample check (independent -- FreightTiger's own data/sample_output_format_v2.csv) ===")
+    sample_mismatches = score_against_graders_sample(output)
+    print(f"All {len(GRADERS_SAMPLE)} graders' sample rows match." if not sample_mismatches
+          else f"{len(GRADERS_SAMPLE) - sample_mismatches}/{len(GRADERS_SAMPLE)} graders' sample rows match.")
+    print()
+
+    print("=== 2. Hallucination audit (independent -- re-derived from the raw note cache) ===")
+    notes_by_id = load_enriched_notes()
+    failures = hallucination_audit(output, notes_by_id, cfg.notes.open_ended_note_weeks)
+    print()
+
+    print("=== 3. Regression snapshot (NOT independent -- eval/expected_verdicts.csv is mostly a")
+    print("       transcription of this project's own output.csv; catches drift, not correctness) ===")
+    snapshot_mismatches = score_against_labels(output, expected)
+    print(f"{len(expected) - snapshot_mismatches}/{len(expected)} snapshot rows match." if snapshot_mismatches
+          else "All snapshot rows match (i.e. no drift from the committed output.csv).")
     print()
 
     print("=== Citation counts ===")
     counts = citation_counts(output)
     for note_id, count in counts.items():
         print(f"  {note_id}: {count}")
-    print()
 
-    print("=== Hallucination audit ===")
-    notes_by_id = load_enriched_notes()
-    failures = hallucination_audit(output, notes_by_id, cfg.notes.open_ended_note_weeks)
-
-    if mismatches or failures:
-        print(f"\nFAILED: {mismatches} labelled-set mismatch(es), {failures} hallucination failure(s).")
+    if sample_mismatches or failures or snapshot_mismatches:
+        print(
+            f"\nFAILED: {sample_mismatches} graders'-sample mismatch(es) [independent], "
+            f"{failures} hallucination failure(s) [independent], "
+            f"{snapshot_mismatches} regression-snapshot mismatch(es) [drift from committed output.csv, "
+            f"not itself proof of a wrong verdict -- see tier 3 above]."
+        )
         sys.exit(1)
     print("\nPASSED.")
 

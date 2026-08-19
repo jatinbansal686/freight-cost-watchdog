@@ -58,6 +58,11 @@ class RetrievalConfig:
 
 
 @dataclass(frozen=True)
+class QAConfig:
+    max_tokens: int
+
+
+@dataclass(frozen=True)
 class Config:
     paths: Paths
     baselines: BaselineConfig
@@ -65,6 +70,7 @@ class Config:
     notes: NotesConfig
     llm: LLMConfig
     retrieval: RetrievalConfig
+    qa: QAConfig
 
 
 def load_config(path: str | Path = REPO_ROOT / "config.yaml") -> Config:
@@ -80,5 +86,6 @@ def load_config(path: str | Path = REPO_ROOT / "config.yaml") -> Config:
     llm_raw = raw["llm"]
     llm = LLMConfig(**llm_raw, api_key=os.environ.get("NVIDIA_API_KEY"))
     retrieval = RetrievalConfig(**raw["retrieval"])
+    qa = QAConfig(**raw["qa"])
 
-    return Config(paths=paths, baselines=baselines, detector=detector, notes=notes, llm=llm, retrieval=retrieval)
+    return Config(paths=paths, baselines=baselines, detector=detector, notes=notes, llm=llm, retrieval=retrieval, qa=qa)
