@@ -27,7 +27,7 @@
     "date": "2025-05-05",
     "effective_from": "2025-05-05",
     "effective_to": null,
-    "evidence_span": "Diesel prices rose nationwide starting this week, pushing up transportation costs across all routes by roughly 5-7%",
+    "evidence_span": "pushing up transportation costs across all routes by roughly 5-7%",
     "indicates_cost_increase": true,
     "note_id": "N003",
     "raw_text": "Diesel prices rose nationwide starting this week, pushing up transportation costs across all routes by roughly 5-7%."
@@ -71,7 +71,7 @@
     "date": "2024-05-20",
     "effective_from": "2024-05-20",
     "effective_to": null,
-    "evidence_span": "improved road conditions on the Delhi-Jaipur stretch",
+    "evidence_span": "improved road conditions",
     "indicates_cost_increase": false,
     "note_id": "N007",
     "raw_text": "Local authorities announced improved road conditions on the Delhi-Jaipur stretch after resurfacing work was completed."
@@ -82,7 +82,7 @@
     "date": "2025-06-09",
     "effective_from": "2025-06-09",
     "effective_to": null,
-    "evidence_span": "freight movement remained normal.",
+    "evidence_span": "No significant disruptions were reported on the Kolkata-Bhubaneswar corridor this quarter; freight movement remained normal.",
     "indicates_cost_increase": false,
     "note_id": "N008",
     "raw_text": "No significant disruptions were reported on the Kolkata-Bhubaneswar corridor this quarter; freight movement remained normal."
@@ -92,7 +92,7 @@
     "applies_to_dataset": true,
     "date": "2025-03-17",
     "effective_from": "2025-03-17",
-    "effective_to": "2025-03-17",
+    "effective_to": null,
     "evidence_span": "returned to normal conditions",
     "indicates_cost_increase": false,
     "note_id": "N009",
@@ -104,7 +104,7 @@
     "date": "2025-10-27",
     "effective_from": "2025-10-27",
     "effective_to": null,
-    "evidence_span": "compliance costs were absorbed by transporters without a rate change.",
+    "evidence_span": "compliance costs were absorbed by transporters without a rate change",
     "indicates_cost_increase": false,
     "note_id": "N010",
     "raw_text": "A new vehicle tracking mandate was introduced for commercial fleets; compliance costs were absorbed by transporters without a rate change."

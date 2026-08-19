@@ -33,8 +33,9 @@ Output ONLY a JSON object, no markdown fences, no commentary, with exactly these
 "applies_to_dataset": true/false, "evidence_span": "verbatim substring of the note text"}
 
 Rules:
-- effective_to: the date the situation described ended, ONLY if the text gives an explicit end \
-date or a clear "back to normal" date. Otherwise null.
+- effective_to: the date the situation described ended, ONLY if the note's own text explicitly \
+names that end/return-to-normal date. Do not treat the `date:` field above as the end date unless \
+the text itself states that same date as when things ended. Otherwise null.
 - indicates_cost_increase: true only if the note describes something that would raise freight \
 cost (fuel, tolls, weather disruption, surcharge, capacity shortage). If the note says costs were \
 NOT affected, or conditions improved/normalized/absorbed with no rate change, this is false.

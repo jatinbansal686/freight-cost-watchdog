@@ -277,7 +277,9 @@ Ground truth (verify the answer above against this):
 ## 9. Reproducibility
 
 `python -m watchdog.cli repro` runs the pipeline 3x, clearing the prose cache (not the note
-enrichment cache -- that's deterministic factual extraction, not style) between runs so the LLM
+enrichment cache -- that's factual extraction at temperature=0, not style, so it's treated as
+stable rather than regenerated every run; temperature=0 minimizes but does not guarantee
+bit-identical output from the hosted API -- see Limitations) between runs so the LLM
 genuinely regenerates every `reason` string each time. `route`, `week_of`, `cost_per_tonne_km`,
 `vs_own_history`, `vs_similar_routes`, `flagged` and `matched_note_id` are identical across all 3
 runs; only `reason` wording can vary. See `REPRO.md` for the actual result. The only place
@@ -310,3 +312,10 @@ tokens, checked 2026-08-19 -- as a stand-in, cited in `cli.py`.
   filtering; at a larger note count this would need re-tuning (and re-testing against dropped
   matches the way we caught this one).
 - Weekly figures rest on 3-5 shipments per route-week -- not a lot of signal per data point.
+- Note enrichment (`notes/enrich.py`) runs at temperature=0, but that reduces variance on the
+  hosted API, it does not guarantee bit-identical output run to run. Confirmed by direct testing:
+  a field with genuine textual ambiguity (N009's `effective_to`, which has no date named in its
+  own text) returned different values on two separate cold runs before the prompt was tightened
+  to stop it from reusing the note's `date` field as a stand-in end date. Neither value ever
+  changed a `flagged`/`matched_note_id` result, since N009 fails the gate on a different condition
+  regardless -- but this cache is not provably deterministic the way `notes/gate.py` is.

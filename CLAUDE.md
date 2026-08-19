@@ -89,8 +89,10 @@ applies_to_dataset` both true, and `evidence_span` a verbatim substring of the n
 - `notes/index.py` — RAG retrieval. `top_k` is deliberately 10 (every note in this corpus); a
   smaller shortlist previously dropped a real match (README §6) — don't "optimize" this back down
   without re-reading why.
-- `notes/enrich.py` — LLM note understanding, cached per `note_id`. Deterministic factual
-  extraction (temperature=0), so this cache is reused across repro/eval runs unlike the prose cache.
+- `notes/enrich.py` — LLM note understanding, cached per `note_id`. Factual extraction at
+  temperature=0, so this cache is reused across repro/eval runs unlike the prose cache — but
+  temperature=0 only minimizes variance on the hosted API, it does not guarantee bit-identical
+  output (see README §11 Limitations).
 - `notes/gate.py` — the sole decision authority; see invariant above.
 - `explain.py` — reason-string phrasing only, two modes (`llm` / `template`); has its own cache
   (`outputs/explanation_cache.json`) that `repro`/`cost-log` intentionally clear.
