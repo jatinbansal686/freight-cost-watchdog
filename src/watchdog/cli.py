@@ -30,15 +30,14 @@ def cmd_repro(args: argparse.Namespace) -> None:
         shutil.rmtree(repro_dir)
     repro_dir.mkdir(parents=True)
 
-    explain_cache = REPO_ROOT / "outputs" / "explanation_cache.json"
-
     run_hashes = []
     for i in range(1, args.runs + 1):
         run_dir = repro_dir / f"run{i}"
         run_dir.mkdir(parents=True)
-        if explain_cache.exists():
-            explain_cache.unlink()  # force the LLM to genuinely re-run prose each time
-
+        # outputs_dir=run_dir gives each run its own, always-empty explanation_cache.json, so the
+        # LLM genuinely regenerates every `reason` string. notes_cache_path is left at its default
+        # (the committed outputs/notes_index.json) -- note enrichment is deterministic factual
+        # extraction, not prose, so all 3 runs correctly reuse it instead of re-enriching for free.
         result = run_pipeline(cfg, explain_mode="llm", use_cache=True, outputs_dir=run_dir)
         out_path = run_dir / "output.csv"
         import csv as csv_mod

@@ -37,9 +37,22 @@ def _fmt_pct(x: float | None, suffix: str) -> str:
     return f"{x * 100:+.1f}% {suffix}"
 
 
-def run_pipeline(cfg: Config, explain_mode: str = "llm", use_cache: bool = True, outputs_dir: Path | None = None):
+def run_pipeline(
+    cfg: Config,
+    explain_mode: str = "llm",
+    use_cache: bool = True,
+    outputs_dir: Path | None = None,
+    notes_cache_path: Path | None = None,
+):
+    """`outputs_dir` controls where this run's diagnostics (weekly_metrics.csv, retrieval_trace,
+    explanation cache) land. `notes_cache_path` is separate and defaults to the committed
+    `outputs/notes_index.json` regardless of `outputs_dir` -- note enrichment is deterministic
+    factual extraction (temperature=0, validated, cached by note id), so an isolated run (e.g. one
+    repro iteration) should still reuse it rather than silently re-enriching all 10 notes."""
     outputs_dir = outputs_dir or (cfg.paths.output.parent / "outputs")
     outputs_dir.mkdir(parents=True, exist_ok=True)
+    notes_cache_path = notes_cache_path or (cfg.paths.output.parent / "outputs" / "notes_index.json")
+    notes_cache_path.parent.mkdir(parents=True, exist_ok=True)
 
     shipments = load_shipments(cfg.paths.shipments)
     notes_df = load_notes(cfg.paths.notes)
@@ -52,9 +65,7 @@ def run_pipeline(cfg: Config, explain_mode: str = "llm", use_cache: bool = True,
     tracker = CostTracker()
     llm_client = LLMClient(cfg.llm, tracker)
 
-    enriched_list = build_notes_index(
-        notes_df, llm_client, cache_path=outputs_dir / "notes_index.json", use_cache=use_cache
-    )
+    enriched_list = build_notes_index(notes_df, llm_client, cache_path=notes_cache_path, use_cache=use_cache)
     enriched_by_id: dict[str, EnrichedNote] = {n.note_id: n for n in enriched_list}
 
     notes_index = NotesIndex(notes_df, top_k=cfg.retrieval.top_k)

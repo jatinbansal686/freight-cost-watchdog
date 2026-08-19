@@ -38,8 +38,11 @@ date or a clear "back to normal" date. Otherwise null.
 - indicates_cost_increase: true only if the note describes something that would raise freight \
 cost (fuel, tolls, weather disruption, surcharge, capacity shortage). If the note says costs were \
 NOT affected, or conditions improved/normalized/absorbed with no rate change, this is false.
-- applies_to_dataset: false if the note explicitly says the affected routes/situation are not \
-part of this dataset, or is otherwise unrelated to the routes tracked here. Otherwise true.
+- applies_to_dataset: false ONLY if the note EXPLICITLY states that the affected routes or \
+situation are not part of this dataset, or describes something clearly unrelated to freight \
+routes altogether (e.g. an unrelated industry event). Do NOT set this false just because the note \
+says there was no cost impact, no rate change, or costs were absorbed -- that is what \
+indicates_cost_increase is for, not this field. Default to true.
 - evidence_span: a short VERBATIM substring copied exactly from the note text, character for \
 character, that best supports your indicates_cost_increase judgment. Do not paraphrase."""
 
