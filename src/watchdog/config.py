@@ -37,6 +37,7 @@ class NotesConfig:
     open_ended_note_weeks: int
     near_miss_days: int
     enrichment_max_tokens: int
+    enrichment_max_retries: int
 
 
 @dataclass(frozen=True)

@@ -27,7 +27,7 @@
     "date": "2025-05-05",
     "effective_from": "2025-05-05",
     "effective_to": null,
-    "evidence_span": "pushing up transportation costs across all routes by roughly 5-7%",
+    "evidence_span": "Diesel prices rose nationwide starting this week, pushing up transportation costs across all routes by roughly 5-7%",
     "indicates_cost_increase": true,
     "note_id": "N003",
     "raw_text": "Diesel prices rose nationwide starting this week, pushing up transportation costs across all routes by roughly 5-7%."
@@ -93,7 +93,7 @@
     "date": "2025-03-17",
     "effective_from": "2025-03-17",
     "effective_to": null,
-    "evidence_span": "returned to normal conditions after flood-related repairs were completed.",
+    "evidence_span": "returned to normal conditions",
     "indicates_cost_increase": false,
     "note_id": "N009",
     "raw_text": "Highway authorities confirmed the Chennai-Bangalore route returned to normal conditions after flood-related repairs were completed."
@@ -104,7 +104,7 @@
     "date": "2025-10-27",
     "effective_from": "2025-10-27",
     "effective_to": null,
-    "evidence_span": "compliance costs were absorbed by transporters without a rate change.",
+    "evidence_span": "compliance costs were absorbed by transporters without a rate change",
     "indicates_cost_increase": false,
     "note_id": "N010",
     "raw_text": "A new vehicle tracking mandate was introduced for commercial fleets; compliance costs were absorbed by transporters without a rate change."

@@ -122,12 +122,18 @@ def _parse_json_response(raw: str) -> dict:
 
 
 def enrich_note(
-    client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int
+    client: LLMClient,
+    note_id: str,
+    note_date: str,
+    applies_to: str,
+    raw_text: str,
+    max_tokens: int,
+    max_retries: int,
 ) -> EnrichedNote:
     user_prompt = f"note_id: {note_id}\ndate: {note_date}\nnote text: {raw_text}"
 
     last_error: Exception | None = None
-    for _ in range(2):
+    for _ in range(max_retries):
         content = client.complete(SYSTEM_PROMPT, user_prompt, purpose="note_enrichment", max_tokens=max_tokens)
         if content is None:
             raise NoteValidationError(f"{note_id}: LLM call failed (no content returned)")
@@ -156,12 +162,21 @@ class NoteCache:
         self._changed = False
 
     def get_or_enrich(
-        self, client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int
+        self,
+        client: LLMClient,
+        note_id: str,
+        note_date: str,
+        applies_to: str,
+        raw_text: str,
+        max_tokens: int,
+        max_retries: int,
     ) -> EnrichedNote:
         if note_id in self._cached:
             return EnrichedNote(**self._cached[note_id])
 
-        enriched = enrich_note(client, note_id, note_date, applies_to, raw_text, max_tokens=max_tokens)
+        enriched = enrich_note(
+            client, note_id, note_date, applies_to, raw_text, max_tokens=max_tokens, max_retries=max_retries
+        )
         self._cached[note_id] = asdict(enriched)
         self._changed = True
         return enriched

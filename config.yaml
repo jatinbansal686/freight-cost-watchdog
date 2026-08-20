@@ -26,6 +26,9 @@ notes:
   near_miss_days: 14         # a failed-gate note is only cited in `reason` as a "near miss" within this window
   enrichment_max_tokens: 600  # note_enrichment call's budget -- larger than llm.max_tokens because the
                                # model spends part of it on internal reasoning before the JSON payload
+  enrichment_max_retries: 2   # attempts at getting a JSON response that passes _validate_and_build
+                               # before giving up on a note (separate from llm.max_retries, which
+                               # covers transient API errors/truncation within a single attempt here)
 
 llm:
   base_url: https://integrate.api.nvidia.com/v1

@@ -50,7 +50,7 @@ NOTES_DF = pd.DataFrame(
 
 
 def _fake_enrich_note(calls: list[str]):
-    def _enrich(client, note_id, note_date, applies_to, raw_text, max_tokens):
+    def _enrich(client, note_id, note_date, applies_to, raw_text, max_tokens, max_retries):
         calls.append(note_id)
         return EnrichedNote(
             note_id=note_id,
@@ -88,7 +88,8 @@ def test_retrieval_triggers_enrichment_only_for_the_retrieved_note(monkeypatch, 
     for item in shortlist:
         row = lookup.loc[item["note_id"]]
         cache.get_or_enrich(
-            object(), item["note_id"], row["date"].date().isoformat(), row["applies_to"], row["note"], max_tokens=600
+            object(), item["note_id"], row["date"].date().isoformat(), row["applies_to"], row["note"],
+            max_tokens=600, max_retries=2,
         )
 
     assert calls == ["N1"]  # exactly one call, for the note retrieval actually surfaced
@@ -102,8 +103,12 @@ def test_cached_note_is_not_re_enriched(monkeypatch, tmp_path):
     cache_path = tmp_path / "notes_index.json"
 
     cache = NoteCache(cache_path, use_cache=True)
-    cache.get_or_enrich(object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600)
-    cache.get_or_enrich(object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600)
+    cache.get_or_enrich(
+        object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600, max_retries=2
+    )
+    cache.get_or_enrich(
+        object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600, max_retries=2
+    )
     cache.save()
     assert calls == ["N003"]  # second retrieval within the same run was a cache hit
 
@@ -111,7 +116,7 @@ def test_cached_note_is_not_re_enriched(monkeypatch, tmp_path):
     calls.clear()
     reloaded = NoteCache(cache_path, use_cache=True)
     reloaded.get_or_enrich(
-        object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600
+        object(), "N003", "2025-05-05", "All Routes", "Diesel prices rose nationwide", max_tokens=600, max_retries=2
     )
     assert calls == []
 
@@ -119,8 +124,10 @@ def test_cached_note_is_not_re_enriched(monkeypatch, tmp_path):
 class _FakeClient:
     def __init__(self, content: str):
         self._content = content
+        self.call_count = 0
 
     def complete(self, system, user, purpose, max_tokens=None):
+        self.call_count += 1
         return self._content
 
 
@@ -137,5 +144,28 @@ def test_invalid_evidence_still_rejected_through_the_lazy_path(tmp_path):
 
     with pytest.raises(NoteValidationError):
         cache.get_or_enrich(
-            _FakeClient(bad_response), "N999", "2025-01-01", "All Routes", "unrelated note text", max_tokens=600
+            _FakeClient(bad_response), "N999", "2025-01-01", "All Routes", "unrelated note text",
+            max_tokens=600, max_retries=2,
         )
+
+
+def test_max_retries_is_respected_not_hardcoded(tmp_path):
+    """Regression: enrich_note used to have a bare `for _ in range(2):` regardless of what the
+    caller asked for. Passing max_retries=4 here must mean 4 real attempts, not 2."""
+    bad_response = json.dumps(
+        {
+            "effective_to": None,
+            "indicates_cost_increase": True,
+            "applies_to_dataset": True,
+            "evidence_span": "text that does not appear in the note",
+        }
+    )
+    cache = NoteCache(tmp_path / "notes_index.json", use_cache=True)
+    fake_client = _FakeClient(bad_response)
+
+    with pytest.raises(NoteValidationError):
+        cache.get_or_enrich(
+            fake_client, "N999", "2025-01-01", "All Routes", "unrelated note text",
+            max_tokens=600, max_retries=4,
+        )
+    assert fake_client.call_count == 4

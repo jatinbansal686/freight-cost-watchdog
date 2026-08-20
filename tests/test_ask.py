@@ -2,6 +2,8 @@
 The LLM-phrasing half (answer_question's call to client.complete) is intentionally not tested here,
 same rationale as explain.py: free-form prose isn't a thing to assert equality on. What matters
 for trust is that only in-scope rows ever reach the LLM, which is what these tests check."""
+import pandas as pd
+
 from watchdog.ask import _render_context_block, _route_named, build_context, known_routes, parse_question
 
 
@@ -80,6 +82,30 @@ def test_route_named_false_when_only_one_city_present():
     assert _route_named("what happened on the delhi route", "Delhi", "Chennai") is False
 
 
+def test_route_named_requires_an_actual_connector_not_bare_adjacency():
+    """Regression: the connector was briefly optional, so bare whitespace adjacency (no "to"/
+    "and"/"-"/etc. at all) still matched -- reopening a narrower version of the exact bug this
+    function was written to close. Two cities separated only by a third, unrelated city name in
+    between must not match either pairing."""
+    q = "compare mumbai delhi chennai trends"
+    assert _route_named(q, "Mumbai", "Delhi") is False
+    assert _route_named(q, "Delhi", "Chennai") is False
+
+
+def test_three_city_chain_falls_back_to_disclosed_ambiguous_not_a_false_confident_pair(weekly_metrics_df):
+    """With no connector words at all, "mumbai delhi chennai" must NOT resolve to a confident,
+    non-ambiguous exact match on Mumbai-Delhi and Delhi-Chennai (the bug) -- it should instead
+    fall through to the existing city-union fallback, which is honestly flagged ambiguous rather
+    than silently guessing a pairing."""
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("compare mumbai delhi chennai trends", routes)
+    assert parsed.ambiguous is True
+    assert set(parsed.routes) == {
+        "Ahmedabad-Mumbai", "Chennai-Bangalore", "Delhi-Chennai",
+        "Delhi-Jaipur", "Mumbai-Delhi", "Mumbai-Pune",
+    }
+
+
 def test_delhi_to_chennai_phrasing_resolves_to_the_one_route_not_the_ambiguous_fallback(weekly_metrics_df):
     """Regression: this used to fall through to the city-union fallback and return every route
     touching either city (Delhi-Chennai, Delhi-Jaipur, Mumbai-Delhi, Chennai-Bangalore) instead of
@@ -140,6 +166,61 @@ def test_no_month_named_is_not_ambiguous(weekly_metrics_df):
     assert parsed.months_mentioned == []
     assert parsed.ambiguous_month is False
     assert parsed.month is None
+
+
+def test_build_context_with_ambiguous_month_scopes_to_the_union_of_named_months(
+    weekly_metrics_df, output_df, notes_df
+):
+    """Regression: build_context used to apply NO month filter at all when ambiguous_month was
+    True -- silently handing back the route's whole year (or entire history) while the disclosure
+    note told the LLM "the data below covers all of them," which reads as "covers Feb and March"
+    but actually meant "covers everything, unfiltered." Chennai-Bangalore has flagged weeks in
+    both Feb (2025-02-24) and March (2025-03-03/10/17) 2025 -- a Feb-or-March question must return
+    exactly those, not January/April/etc."""
+    from watchdog.ask import ParsedQuery
+
+    parsed = ParsedQuery(
+        routes=["Chennai-Bangalore"], year=2025, month=None, ambiguous=False,
+        months_mentioned=[2, 3], ambiguous_month=True,
+    )
+    ctx = build_context(parsed, weekly_metrics_df, output_df, notes_df)
+    assert ctx.no_data_reason is None
+    assert ctx.windowed_rows, "expected at least one Chennai-Bangalore week in Feb/March 2025"
+    months_seen = {pd.Timestamp(r["week_of"]).month for r in ctx.windowed_rows}
+    assert months_seen <= {2, 3}, f"leaked rows outside Feb/March: {months_seen}"
+    assert ctx.candidate_rows, "expected at least one flagged Chennai-Bangalore week in Feb/March 2025"
+    candidate_months = {pd.Timestamp(r["week_of"]).month for r in ctx.candidate_rows}
+    assert candidate_months <= {2, 3}, f"leaked candidate rows outside Feb/March: {candidate_months}"
+
+
+def test_build_context_with_ambiguous_month_and_no_year_still_scopes_by_month(
+    weekly_metrics_df, output_df, notes_df
+):
+    """Same regression as above, but with no year named at all -- previously this meant
+    has_window was False and every week of the route's entire multi-year history leaked through."""
+    from watchdog.ask import ParsedQuery
+
+    parsed = ParsedQuery(
+        routes=["Chennai-Bangalore"], year=None, month=None, ambiguous=False,
+        months_mentioned=[2, 3], ambiguous_month=True,
+    )
+    ctx = build_context(parsed, weekly_metrics_df, output_df, notes_df)
+    assert ctx.windowed_rows
+    months_seen = {pd.Timestamp(r["week_of"]).month for r in ctx.windowed_rows}
+    assert months_seen <= {2, 3}
+
+
+def test_render_context_block_ambiguous_month_note_names_the_actual_months(weekly_metrics_df, output_df, notes_df):
+    from watchdog.ask import ParsedQuery
+
+    parsed = ParsedQuery(
+        routes=["Chennai-Bangalore"], year=2025, month=None, ambiguous=False,
+        months_mentioned=[2, 3], ambiguous_month=True,
+    )
+    ctx = build_context(parsed, weekly_metrics_df, output_df, notes_df)
+    block = _render_context_block(ctx)
+    assert "February" in block and "March" in block
+    assert "scoped to exactly those 2 months" in block
 
 
 def test_build_context_no_route_returns_no_data_reason(weekly_metrics_df, output_df, notes_df):

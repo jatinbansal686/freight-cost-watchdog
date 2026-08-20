@@ -31,12 +31,16 @@ MONTH_NAMES = [
 ]
 
 # Words/symbols that plausibly join two city names into one route reference -- "Delhi-Chennai",
-# "Delhi to Chennai", "Chennai and Delhi". Deliberately a fixed connector list, not a character-
-# distance window: a distance window (e.g. "within 20 chars") also matches "Delhi to Chennai and
-# Mumbai to Pune" as naming a spurious Mumbai-Delhi route, since "delhi" and "mumbai" end up within
-# 20 characters of each other despite belonging to two unrelated route mentions. Requiring an
-# actual connector token directly between the two city names avoids that.
-_ROUTE_CONNECTOR = r"(?:-|to|and|&|vs\.?|versus)?"
+# "Delhi to Chennai", "Chennai and Delhi". Deliberately a fixed, REQUIRED connector list -- two
+# earlier approaches were tried and rejected because both let a false match through:
+#   1. A character-distance window (e.g. "within 20 chars") matches "Delhi to Chennai and Mumbai
+#      to Pune" as also naming a spurious Mumbai-Delhi route, since "delhi" and "mumbai" end up
+#      within 20 characters of each other despite belonging to two unrelated route mentions.
+#   2. Making this connector *optional* (so bare whitespace adjacency also matched) reopened a
+#      narrower version of the same bug: "compare Mumbai Delhi Chennai trends" (three cities, no
+#      connector word anywhere) matched both Mumbai-Delhi and Delhi-Chennai off the shared "Delhi".
+# The connector must actually be present -- bare adjacency alone is not enough.
+_ROUTE_CONNECTOR = r"(?:-|to|and|&|vs\.?|versus)"
 
 SYSTEM_PROMPT = """You answer questions about a freight-cost analysis using ONLY the data given \
 below -- never state a number, route, week, or note that isn't in it. If the data doesn't answer \
@@ -132,14 +136,25 @@ def build_context(
     route_weekly = weekly_df[weekly_df["route"].isin(parsed.routes)].copy()
     route_weekly["week_of_dt"] = pd.to_datetime(route_weekly["week_of"])
 
+    # When multiple months were named ("Feb or March"), scope to the UNION of those months, not
+    # "no month filter at all" -- the latter would silently hand back the whole year (or the
+    # route's entire history) while the disclosure note below tells the LLM the data "covers all
+    # of them," which is only true if "them" means the named months, not every month that exists.
+    if parsed.ambiguous_month:
+        month_filter: set[int] | None = set(parsed.months_mentioned)
+    elif parsed.month is not None:
+        month_filter = {parsed.month}
+    else:
+        month_filter = None
+
     windowed_rows: list[dict] = []
-    has_window = parsed.month is not None or parsed.year is not None
+    has_window = month_filter is not None or parsed.year is not None
     if has_window:
         mask = pd.Series(True, index=route_weekly.index)
         if parsed.year is not None:
             mask &= route_weekly["week_of_dt"].dt.year == parsed.year
-        if parsed.month is not None:
-            mask &= route_weekly["week_of_dt"].dt.month == parsed.month
+        if month_filter is not None:
+            mask &= route_weekly["week_of_dt"].dt.month.isin(month_filter)
         windowed = route_weekly[mask]
         if windowed.empty:
             return QAContext(routes=parsed.routes, ambiguous=parsed.ambiguous, no_data_reason="no_window_data")
@@ -150,7 +165,7 @@ def build_context(
         candidate_rows = [
             r for r in candidate_rows
             if (parsed.year is None or pd.Timestamp(r["week_of"]).year == parsed.year)
-            and (parsed.month is None or pd.Timestamp(r["week_of"]).month == parsed.month)
+            and (month_filter is None or pd.Timestamp(r["week_of"]).month in month_filter)
         ]
 
     note_texts: dict[str, str] = {}
@@ -199,9 +214,10 @@ def _render_context_block(ctx: QAContext) -> str:
     if ctx.ambiguous_month:
         month_names = ", ".join(MONTH_NAMES[m] for m in ctx.months_mentioned)
         lines.append(
-            f"Note: the question named multiple months ({month_names}) -- no single month was "
-            "filtered, so the data below covers all of them. Answer for each month separately "
-            "and say which month each fact belongs to; do not silently pick just one."
+            f"Note: the question named multiple months ({month_names}) -- the data below is "
+            f"scoped to exactly those {len(ctx.months_mentioned)} months, not to a single one "
+            "picked arbitrarily. Answer for each month separately and say which month each fact "
+            "belongs to; do not silently collapse them into one."
         )
     lines.append("Route summary:")
     lines.extend(f"- {line}" for line in ctx.summary_lines)

@@ -98,6 +98,7 @@ def run_pipeline(
                     note_row["applies_to"],
                     note_row["note"],
                     max_tokens=cfg.notes.enrichment_max_tokens,
+                    max_retries=cfg.notes.enrichment_max_retries,
                 )
             shortlisted_notes.append(enriched_by_id[note_id])
 

@@ -35,6 +35,13 @@ def test_notes_enrichment_max_tokens_is_loaded_from_yaml(cfg):
     assert cfg.notes.enrichment_max_tokens == 600
 
 
+def test_notes_enrichment_max_retries_is_loaded_from_yaml(cfg):
+    """Was previously a bare `for _ in range(2):` literal in notes/enrich.py -- pin the config
+    value so a future edit to config.yaml is what actually controls retry count, not a second,
+    un-synced copy at the call site."""
+    assert cfg.notes.enrichment_max_retries == 2
+
+
 def test_explain_max_tokens_is_loaded_from_yaml(cfg):
     assert cfg.explain.max_tokens == 500
 
