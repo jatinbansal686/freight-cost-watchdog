@@ -1,346 +1,370 @@
 # Freight Cost Watchdog
 
-A FreightTiger 24-hour case study submission: an assistant that watches per-route freight cost,
-flags weeks where it's rising in a way that looks out of the ordinary, checks a small set of
-context notes for a real reason before saying anything is "justified," and refuses to invent one
-when none exists.
+A submission for FreightTiger's 24-hour AI Intern case study: *"build a smart assistant that spots
+when a route's cost is rising in a way that doesn't look justified, and explains why in plain
+English."*
 
-**`output.csv` at the repo root is the submission.**
+**`output.csv` at the repo root is the graded submission.** This README maps 1:1 onto the brief's
+own structure so it's fast to check off: what was asked, what we built, how, and why.
 
-## 1. What it does, how to run it
+Result on the supplied data: **27 candidate route-weeks out of 728 total, 9 justified, 18
+unexplained.** Only notes `N001`, `N002`, `N003` are ever cited as a match; the other seven are
+cited zero times, which `eval/run_eval.py` verifies, not just asserts.
 
-```
+---
+
+## 1. How to run it
+
+```bash
 pip install -r requirements.txt
-export PYTHONPATH=src                                 # required for every command below -- the
-                                                        # package isn't pip-installed, only pytest
-                                                        # picks up src/ automatically (pyproject.toml)
-cp .env.example .env        # fill in NVIDIA_API_KEY
-python -m watchdog.cli run                          # full run, writes output.csv
-python -m watchdog.cli run --explain-mode template   # zero LLM calls, identical verdicts/numbers
-python -m watchdog.cli run --no-cache                # ignore caches, force a cold run
-python -m watchdog.cli repro                         # 3x reproducibility check -> REPRO.md
-python -m watchdog.cli cost-log                      # one full cold run -> outputs/token_cost_log.md
-python -m watchdog.cli ask "why did X get pricier in <month>?"   # Q&A over the results, see §7
-python -m eval.run_eval                              # graders' sample + hallucination audit (independent) + regression snapshot (drift-only)
-pytest                                                # unit/integration tests (no API key needed)
+export PYTHONPATH=src                                 # required — package isn't pip-installed
+cp .env.example .env                                   # fill in NVIDIA_API_KEY (only for LLM-mode)
+
+python -m watchdog.cli run                              # full run -> output.csv
+python -m watchdog.cli run --explain-mode template       # zero LLM calls, identical verdicts/numbers
+python -m watchdog.cli run --no-cache                    # ignore caches, force a cold run
+python -m watchdog.cli repro --runs 3                     # 3x run -> REPRO.md
+python -m watchdog.cli cost-log                          # one full cold run -> outputs/token_cost_log.md
+python -m watchdog.cli ask "why did X get pricier in <month>?"   # Q&A, see §5.4
+python -m eval.run_eval                                    # 3 independent correctness checks, see §6
+pytest                                                     # 139 tests, no API key needed
 ```
 
-Everything except `watchdog.cli run` with a cleared cache and `cost-log` works with **no API key
-at all**: note enrichment is cached at `outputs/notes_index.json` (committed), and
-`--explain-mode template` produces `output.csv` with identical verdicts and numbers from pure code.
+Everything except a cold `run`/`cost-log` works with **no API key** — note enrichment is cached at
+`outputs/notes_index.json` (committed), and `--explain-mode template` produces byte-identical
+verdicts and numbers from pure code, zero LLM calls.
 
-Result on the supplied data: **27 candidate route-weeks, 9 justified, 18 unexplained.** Only
-`N001`, `N002` and `N003` are ever cited as a match; the other seven notes are cited zero times
-(verified by `eval/run_eval.py`).
+---
 
-## 2. Architecture
+## 2. Architecture — how data flows
 
 ```
-shipment_records.csv
+shipment_records.csv, context_notes.csv
         |
         v
-[1] weekly aggregation      Mon-Sun weeks, pooled cost per tonne-km            (weekly.py)
-        |
+[1] weekly aggregation     Mon-Sun weeks, POOLED cost/tonne-km (sum/sum, not mean-of-ratios)
         v
-[2] baselines                trailing 8-week own history + same-week peer avg  (baselines.py)
-        |
+[2] baselines               trailing 8-week own history (no look-ahead) + same-week peer avg
         v
-[3] suspicious candidates    cost rising and out of the ordinary               (detect.py)
-        |
+[3] candidate detection     our own thresholds (config.yaml) -> "suspicious" route-weeks
         v
-[4] RAG retrieval            ChromaDB over context_notes.csv     <- LLM/AI layer (notes/index.py)
-        |
+[4] RAG retrieval           ChromaDB, ranks all 10 notes per candidate      <- AI layer starts
         v
-[5] LLM note understanding   lazy, retrieval-triggered, cached by note_id       (notes/enrich.py)
-        |
+[5] LLM note understanding  lazy, one call per note, cached by note_id
         v
-[6] DETERMINISTIC GATE       route AND window AND raises-cost AND verbatim evidence (notes/gate.py)
-        |
-        +-- valid note found --> final result = "No (justified)" + matched_note_id
-        +-- none found --------> final result = "Yes"            + blank matched_note_id
-        |
+[6] DETERMINISTIC GATE      plain Python, zero LLM calls — the ONLY place a verdict is decided
         v
-[7] plain-English reason     grounded in the gate's own facts only             (explain.py)
-        |
+[7] LLM explanation          phrases the gate's own facts into a sentence
         v
-    output.csv                                                                (report.py)
+    output.csv + diagnostics
 ```
 
-**The LLM proposes, code decides.** The LLM's jobs are: understand a note's prose (does it
-describe a cost rise? does it really apply to routes in this dataset? what's the verbatim
-evidence?), rank notes for a candidate via retrieval, and phrase the final sentence. It never sets
-`flagged` or `matched_note_id` -- `notes/gate.py` is the only place those are decided, and it is
-plain deterministic Python with no LLM call in it.
+**The one rule that must never break:** the LLM *proposes* (reads note prose, ranks retrieval,
+phrases sentences); `notes/gate.py` alone *decides* `flagged` and `matched_note_id`, using plain
+deterministic Python with no LLM call inside it. `eval/run_eval.py`'s hallucination audit
+independently re-derives every justified verdict straight from the note cache — not from what
+`output.csv` claims — specifically to catch a regression in this rule.
 
-### Suspicious candidate vs. final result
+Module map: `weekly.py` (aggregation) → `baselines.py` (own-history / peer comparisons) →
+`detect.py` (candidacy thresholds) → `notes/index.py` (retrieval) → `notes/enrich.py` (LLM note
+understanding, cached) → `notes/gate.py` (the decision) → `explain.py` (LLM phrasing, cached
+separately) → `report.py` (writes `output.csv`). `ask.py` is the standalone Q&A layer (§5.4);
+`llm.py` is the one wrapper every LLM call goes through, so cost can be tracked centrally.
 
-These are deliberately different things, kept distinct in the code and here:
+---
 
-- **Suspicious candidate** -- a route-week whose cost rose unusually (`detect.py`). Internal,
-  pre-investigation. 27 of the 728 route-weeks qualify.
-- **Final result** -- what ships in `output.csv`. `No (justified)` only if a note survives all
-  four gate conditions; `Yes` otherwise. A candidate is *investigated*, not flagged --
-  `flagged` is the answer, not the question.
+## 3. Core requirements — what the brief asked for, exactly
 
-## 3. Baselines, exactly as specified
-
-- **vs. own history**: the route's trailing 8-week rolling average `cost_per_tonne_km`, using only
-  weeks strictly before the current week (no look-ahead). **If fewer than 8 prior weeks exist, we
-  use all prior weeks available and do not pad or extrapolate** -- the exact count used is in the
-  `baseline_weeks_used` column of `outputs/weekly_metrics.csv`. A route's very first week has zero
-  prior weeks, so `vs_own_history` is blank there. Among the 27 candidates that made it into
-  `output.csv`, exactly two ran on a short history: **Delhi-Chennai 2024-01-08** (only 1 prior
-  week -- the route's second week ever) and **Delhi-Chennai 2024-02-05** (5 prior weeks). Both are
-  flagged `low_confidence` and carry a caveat in their `reason` text saying so; no other candidate
-  row has fewer than 8 prior weeks.
-- **vs. similar routes**: the unweighted average `cost_per_tonne_km`, in that same week, across the
-  *other* routes sharing the same `route_type`. The route itself is excluded from its own peer
-  average (`peer_count` in `weekly_metrics.csv`). Note: `Short` = {Delhi-Jaipur, Mumbai-Pune} and
-  `Long` = {Delhi-Chennai, Mumbai-Delhi} each have exactly **one** peer route; `Medium` has three.
-
-`cost_per_tonne_km` itself is **pooled**: `sum(freight_cost_inr) / sum(quantity_tonnes *
-distance_km)` across all shipments in the route-week, not the mean of each shipment's own ratio.
-Verified against all three rows of the supplied `sample_output_format_v2.csv` to the exact digit.
-
-## 4. Our implementation choices (not FreightTiger's)
-
-The assignment leaves several things undefined on purpose. Everything below is *our* call, kept
-out of the graded logic and easy to change in `config.yaml`.
-
-| Choice | Value | Why |
+| Brief's requirement | What we built | Verified how |
 |---|---|---|
-| Candidacy thresholds | `vs_own_history >= 7%` OR `vs_similar_routes >= 20%` | Roughly the 97th percentile of the 728 observed weekly changes -- picks out clear outliers without dragging in ordinary noise. No sensitivity sweep was run; this is a judgment call. Run `python -m eval.threshold_analysis` to recompute both percentiles from `outputs/weekly_metrics.csv` yourself rather than take this row's word for it -- it currently reports 97.2th/97.4th. |
-| Near-miss window | +/- 14 days | How close a *failing* note has to be, by date, to be named in an unexplained row's `reason` as "the closest note that didn't hold up," rather than saying nothing was found at all. |
-| CSV quoting | `csv.QUOTE_MINIMAL` on write | The supplied `sample_output_format_v2.csv` is not valid CSV (see below); we write a file that actually round-trips through `pandas`. |
-| `_v2` file is binding | `sample_output_format_v2.csv`, not `sample_output_format.csv` (named in the brief's prose) | It's the file we were given, and the only one that contains `matched_note_id`, which the brief explicitly names as part of the contract. |
-| Retrieval `top_k` | 10 (i.e. every note) | See the retrieval section below -- a smaller top_k measurably dropped a real match. |
-| LLM model | `openai/gpt-oss-20b` on NVIDIA NIM | Verified working against the API key we were given for this submission; open-weight, free tier. |
+| Group by route + given `route_type` | `weekly.py` groups on `(route, route_type)` as supplied — no re-derivation | — |
+| `cost/tonne-km = total cost / (qty_tonnes × distance_km)` | Pooled: `sum(cost) / sum(qty × distance)` across all shipments in the route-week — **not** the mean of each shipment's own ratio | Matches all 3 rows of `data/sample_output_format_v2.csv` to the exact digit (`tests/test_sample_rows.py`) |
+| Weeks are Mon–Sun, `week_of` = Monday | `shipment_date` bucketed to its Monday before any aggregation | `tests/test_weekly.py` (incl. year-boundary case) |
+| vs. own history: trailing 8-week rolling avg, strictly prior weeks, no look-ahead, disclose if <8 weeks | Implemented exactly as specified. `outputs/weekly_metrics.csv`'s `baseline_weeks_used` column shows the exact count for every row | Two rows in `output.csv` run on <8 weeks (Delhi-Chennai 2024-01-08: 1 prior week; 2024-02-05: 5 prior weeks) — both explicitly flagged `low_confidence` in their `reason` text |
+| vs. similar routes: same-week avg across other routes of the same `route_type`, self excluded | `baselines.py::vs_similar_routes`, self-exclusion via `peer_count` column | `Short`={Delhi-Jaipur, Mumbai-Pune}, `Long`={Delhi-Chennai, Mumbai-Delhi} — 1 peer each; `Medium` (3 routes) — 2 peers each |
+| Flag rising, out-of-ordinary cost | `detect.py` candidacy thresholds — **our own judgment call**, not assignment-specified (see §7) | 27/728 route-weeks qualify |
 
-### The supplied sample format file doesn't parse
+---
 
-`sample_output_format_v2.csv` row 4's `reason` field contains an unquoted comma
-(`... (N006, 2025-09-22) ...`) against an 8-column header with zero quote characters anywhere in
-the file -- `pd.read_csv` raises a `ParserError` on it. `tests/test_output_format.py` reads just
-the header line directly rather than asking pandas to parse the whole file, and the three example
-rows are hand-transcribed into `tests/test_sample_rows.py`'s fixture for the same reason. Our own
-`output.csv` is written with `QUOTE_MINIMAL`, which does not have this problem.
+## 4. Output format — the contract
 
-### The open-ended note (N003) window
+Column names, order, and types match `data/sample_output_format_v2.csv` exactly:
+`route, week_of, cost_per_tonne_km, vs_own_history, vs_similar_routes, flagged, matched_note_id, reason`.
 
-N003 ("Diesel prices rose nationwide **starting this week**...") never states an end date. Left
-unbounded, it would silently justify **every** later candidate on every route from 2025-05-05
-onward -- 18 of the 27 rows, including the sample's own **Mumbai-Pune 2025-09-15**, which the
-graders publish as `flagged=Yes` with `matched_note_id` blank and a `reason` that discusses a
-*different* note (N006) and rejects it. Treating N003 as unbounded would output
-`No (justified), N003` there instead -- a direct contradiction of the graded sample, not a style
-choice.
+Two format notes worth flagging honestly:
 
-So a cutoff is required, and it's **derived from the sample rather than picked freely**: the last
-candidate the data itself still expects N003 to explain is **Mumbai-Delhi 2025-06-02** (4 weeks
-after the note begins, and it is in fact justified by N003 in our output); the first candidate the
-sample explicitly forces back to unexplained is **Mumbai-Pune 2025-09-15** (19 weeks in). We use
-`effective_from + 8 weeks` (`config.yaml: notes.open_ended_note_weeks`) -- the midpoint of that
-evidence-bound range `[4, 18]` weeks, not an arbitrary guess.
+- **The supplied sample file is named `sample_output_format_v2.csv`, not `sample_output_format.csv`**
+  as the brief's prose says. Only one such file was actually supplied, and it's the only one
+  containing `matched_note_id` (which the brief calls part of the contract) — so it's treated as
+  binding.
+- **That file doesn't parse as valid CSV as supplied** — row 4's `reason` field has an unquoted
+  comma against a header with zero quoting anywhere in the file, so `pandas.read_csv` raises a
+  `ParserError` on it. Our own `output.csv` is written with `csv.QUOTE_MINIMAL`, which round-trips
+  through pandas cleanly. (`tests/test_output_format.py` reads just the header line directly rather
+  than parsing the whole sample file for this reason.)
+- `vs_own_history` / `vs_similar_routes` are written as formatted strings
+  (`"+29.5% vs this route's past average"`), matching the exact format FreightTiger's own sample
+  uses for those columns — even though the brief calls them "numeric fields we grade." The raw
+  floats aren't lost: they're in `outputs/weekly_metrics.csv` for anyone grading numerically.
 
-## 5. The gate: where trust is won
+---
 
-A note may justify a candidate only if **all four** hold (`notes/gate.py`), each mapped to a
-guardrail the assignment names verbatim:
+## 5. The AI layer — RAG, LLM usage, and caching
 
-| # | Condition | Assignment guardrail |
+This is a **RAG pipeline with deterministic validation**, not an autonomous agent. The LLM never
+gets to decide a verdict; it interprets text and ranks/phrases things that a fixed set of Python
+conditions then checks.
+
+### 5.1 Retrieval (RAG)
+
+`notes/index.py` embeds all 10 notes locally with ChromaDB's ONNX `all-MiniLM-L6-v2` model (no API
+cost, no network dependency after first load) and ranks them per candidate against a query built
+from the candidate's route, `route_type`, and week.
+
+**`top_k` is 10 — i.e., every note, not a shortlist.** We tried 5 first. It broke a real case: the
+query for Mumbai-Delhi ranks route-name-bearing notes above `N003`, whose text never names a route
+at all — so `N003` dropped out of the top-5 shortlist and the gate never got to see it, silently
+reverting a genuinely justified row to "unexplained." With a corpus this small, letting Chroma rank
+everything and handing the full list to the gate is the honest fix — retrieval's job here is
+demonstrating the architecture and producing an inspectable trace
+(`outputs/retrieval_trace.jsonl`, one entry per candidate showing the full ranking), not narrowing
+what the gate is allowed to see. At a much larger note count, `top_k` would need to shrink again,
+paired with re-testing for this exact failure mode.
+
+### 5.2 LLM note understanding — lazy, and cached per note
+
+`notes/enrich.py` asks the LLM three things about a note's raw text, at `temperature=0`: does it
+describe a cost rise (`indicates_cost_increase`), does it really apply to this dataset
+(`applies_to_dataset`), and what's the verbatim evidence quote (`evidence_span`)?
+
+- **Lazy**: a note is only enriched the first time some candidate's retrieval actually surfaces it
+  — not eagerly at pipeline startup. On this 10-note/`top_k=10` corpus that still means all 10 get
+  enriched on a cold run (every candidate's retrieval returns the whole corpus), but the benefit
+  compounds as the corpus grows: a 1,000-note corpus with `top_k=10` would cost at most 10 calls per
+  *distinct note actually retrieved*, not 1,000 calls up front.
+- **Cached by `note_id`** in `outputs/notes_index.json` (committed to the repo) — this is why
+  everything except a cold `run`/`cost-log` works with zero API calls.
+- `applies_to` (the route) and `effective_from` (the date) are read straight from
+  `context_notes.csv`'s own columns, **never** asked of the LLM — this removes a whole class of
+  possible hallucination for free, since in this note set every note with an explicit start date
+  already states it in its own `date` field.
+
+### 5.3 The deterministic gate — where trust is actually won
+
+`notes/gate.py` has **zero LLM calls**. A note justifies a candidate only if all four hold:
+
+| # | Condition | Maps to the brief's guardrail |
 |---|---|---|
-| 1 | Note's `applies_to` equals the candidate's route, or is "All Routes" | "**Wrong route** ... does not count" |
-| 2 | Note's `[effective_from, effective_to]` overlaps the candidate's Mon-Sun week | "**Wrong window** ... does not count" |
-| 3 | `indicates_cost_increase` AND `applies_to_dataset` are both true | "a note that **says costs weren't affected** does not count" |
+| 1 | Note's `applies_to` = candidate's route, or "All Routes" | "Wrong route ... does not count" |
+| 2 | Note's `[effective_from, effective_to]` overlaps the candidate's Mon–Sun week | "Wrong window ... does not count" |
+| 3 | `indicates_cost_increase` AND `applies_to_dataset` both true | "a note that says costs weren't affected does not count" |
 | 4 | `evidence_span` is a verbatim substring of the note's own text | nothing invented to fill a gap |
 
-If more than one note passes (never happens in this dataset), the tie-break is deterministic:
-route-specific before "All Routes", then the narrower window, then lexicographic `note_id` -- so
-the verdict cannot depend on retrieval order.
+If more than one note passes (never happens here), tie-break is deterministic: route-specific
+before "All Routes," then narrower window, then lexicographic `note_id` — so the verdict can't
+depend on retrieval order.
 
-`applies_to` (the route) is read straight from `context_notes.csv`, never asked of the LLM.
-`applies_to_dataset` is a separate, LLM-derived flag that exists specifically to catch **N004**:
-its `applies_to` column literally says "All Routes", but the note's own prose says the affected
-routes "are not part of this dataset" -- only reading the text catches that contradiction.
-`effective_from` is likewise always the note's own `date` column, never LLM-derived, because in
-this 10-note set every note that states an explicit start date states the same date already in
-`date` -- this removes one whole class of possible hallucination for free.
+**Why each distractor note fails, on purpose:**
 
-The seven distractor notes and why each fails, on purpose:
-
-| Note | Why it fails the gate |
+| Note | Why it fails |
 |---|---|
-| N004 | Says the affected routes "are not part of this dataset" -- condition 3 |
-| N005, N006, N008 | Explicitly say costs were *not* significantly affected / demand stable, no disruption -- condition 3 |
-| N007, N009 | Describe conditions *improving* / *returning to normal* -- condition 3 |
-| N010 | Costs "absorbed ... without a rate change" -- condition 3 |
-| N001 | Passes for the weeks its flood window covers, but fails condition 2 for later weeks (e.g. Chennai-Bangalore 2025-03-10, 03-17) once the road reopened |
+| N004 | Says "All Routes" but its own text says the affected routes "are not part of this dataset" — caught only by reading the prose, condition 3 |
+| N005, N006, N008 | Explicitly say costs weren't significantly affected / demand stable, condition 3 |
+| N007, N009 | Describe conditions *improving* / *normalizing*, condition 3 |
+| N010 | Costs "absorbed ... without a rate change," condition 3 |
+| N001 | Passes for weeks inside its flood window, fails condition 2 for later weeks once the road reopened (e.g. Chennai-Bangalore 2025-03-10 onward) |
 
-## 6. Retrieval (RAG)
+**`N003`'s open-ended window** ("diesel prices rose... starting this week," no stated end date) is
+the one genuinely hard case. Left unbounded it would silently justify 18 of the 27 candidates,
+including the graders' own published sample row (Mumbai-Pune 2025-09-15, published as
+`flagged=Yes`) — a direct contradiction, not a style choice. We derive a cutoff from the sample
+itself rather than picking one freely: the last candidate the data still expects N003 to explain is
+4 weeks after the note begins; the first one the sample forces back to unexplained is 19 weeks in.
+We use `effective_from + 8 weeks` (`config.yaml: notes.open_ended_note_weeks`) — the midpoint of
+that evidence-bound `[4, 18]` week range.
 
-`notes/index.py` embeds the 10 notes with ChromaDB's local ONNX `all-MiniLM-L6-v2` model (no API
-cost) and ranks them against a query built from the candidate's route, `route_type`, and week.
-`outputs/retrieval_trace.jsonl` records, per candidate, the full ranking and the gate's decision on
-each retrieved note -- the artefact that shows retrieval actually working, not just a black box.
+### 5.4 LLM explanation phrasing
 
-**`top_k` is 10 (i.e. every note), not a smaller shortlist.** We tried 5 first, matching the
-architecture described in the original plan. It broke a real case: a query built from
-`"route Mumbai-Delhi, route type Long, week of 2025-06-02"` ranks route-name-bearing notes (N005,
-N007, a wrong-route note) above N003, whose text never mentions a route name at all -- so N003
-dropped out of the top-5 shortlist and the gate never got to see it, silently reverting a genuinely
-justified row to "unexplained." With a corpus this small (10 notes), the honest fix is to let
-Chroma rank everything and hand the full ranked list to the gate, which is still the sole decision
-authority -- retrieval's job here is demonstrating the architecture and producing the trace, not
-narrowing what the gate is allowed to consider. If Chroma or its embedding model fails to load
-(e.g. no network on first run), `notes/index.py` falls back to an unranked all-notes list with the
-same effect on the gate.
+`explain.py` turns the gate's own facts into one sentence, two modes: `llm` (default) or
+`--explain-mode template` (zero LLM calls, same underlying facts — this is the structural proof
+that determinism doesn't depend on the model cooperating). Has its own cache
+(`outputs/explanation_cache.json`), deliberately separate from the note-enrichment cache and
+intentionally cleared by `repro`/`cost-log` so the LLM genuinely regenerates prose each time.
 
-### Enrichment is lazy, not eager
-
-Notes are indexed for retrieval first; LLM enrichment occurs lazily when a retrieved note is first
-needed, and results are cached by `note_id`. Concretely: `notes/index.py`'s embedding index is
-built straight from the raw `context_notes.csv` text -- no LLM call. Only once a candidate's
-retrieval query actually surfaces a given note does `notes/enrich.py`'s `NoteCache.get_or_enrich`
-look it up; on a cache miss that's the one and only point an LLM call happens for that note, and
-the result is written back into the same per-`note_id` cache (`outputs/notes_index.json`) used
-before. A note retrieval never surfaces never reaches the LLM at all.
-
-We avoid paying for LLM processing on notes that are never relevant. On this project's 10-note
-corpus this doesn't change *how many* notes end up enriched -- `top_k=10` (see above) means every
-candidate's retrieval already returns the whole corpus, so a cold run still enriches all 10, just
-triggered by the first candidate's retrieval instead of at pipeline startup. The benefit shows up
-as the corpus grows past `top_k`: a 1,000-note corpus with `top_k=10` would still cost at most
-10 LLM calls per distinct note actually retrieved across the run, not 1,000 calls up front.
-
-This is a RAG-based AI pipeline with deterministic validation, not an autonomous agent: the LLM
-only interprets note prose and ranks/phrases; `notes/gate.py` alone decides `flagged` and
-`matched_note_id`, unchanged by this.
-
-## 7. Q&A interface (stretch goal)
+### 5.5 Q&A (stretch goal)
 
 ```
-python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"   # one-shot
+python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"
 python -m watchdog.cli ask                                                          # interactive
 ```
 
 Reads the artefacts `run` already wrote (`output.csv`, `outputs/weekly_metrics.csv`,
-`data/context_notes.csv`) -- it does not re-run the pipeline or re-query the vector index. Same
-division of labor as everywhere else in this project: **code decides what's in scope, the LLM only
-phrases it.**
+`data/context_notes.csv`) — does not re-run the pipeline or re-query the vector index. Same split
+as the rest of the project: **code decides scope, the LLM only phrases it.**
 
-- `ask.py::parse_question` deterministically extracts a route (exact name, or a city name that
-  narrows to one or more routes -- e.g. "Delhi" matches all three routes containing it, and the
-  answer is told to cover each separately) and an optional month/year.
-- `ask.py::build_context` filters `weekly_metrics.csv`/`output.csv` down to just those rows. No
-  route recognized, or a date window with zero matching rows, returns a fixed message and **skips
-  the LLM call entirely** -- the same "no data -> say so" rule as the gate, applied to Q&A.
-- The LLM gets only the filtered rows (plus the full text of any cited note) and phrases an answer
-  from them. `temperature=0`, tracked through the same `CostTracker` as the rest of the pipeline
-  (`purpose="qa"`).
+- `parse_question` deterministically extracts a route (exact name, or a city that narrows to
+  several routes — e.g. "Delhi" matches 3 routes, and the answer is told to cover each separately)
+  and an optional month/year.
+- `build_context` filters `weekly_metrics.csv`/`output.csv` to just those rows. No route
+  recognized, or zero rows in the date window, returns a fixed message and **skips the LLM call
+  entirely**.
+- The LLM gets only the filtered rows (plus full text of any cited note) and phrases an answer,
+  `temperature=0`.
 
 **A real bug this caught, and how it's handled.** Live-testing an ambiguous "how is the Delhi route
-doing" question (3 matching routes), the model at different times: (a) silently dropped one route
-from its answer with `finish_reason=stop` -- not truncated, it just didn't comply with the "cover
-every route" instruction -- and (b) stated "Delhi-Jaipur: 3 flagged weeks, all unexplained" when one
-of those three is in fact justified by N003. Neither is the kind of thing `notes/gate.py`'s four
-fixed conditions can catch, because free-form multi-sentence prose isn't a small enough surface to
-verify the way a single `flagged`/`matched_note_id` pair is. Rather than try to parse and correct
-the model's sentences, every answer is followed by a **deterministic "Ground truth" footer** --
-one line per route in scope, computed directly from `output.csv`'s own rows (flagged count,
-justified count + note ids, unexplained count) -- so a reader can catch any slip by comparing the
-two, the same spot-check the brief itself asks graders to do. This is a known, disclosed limitation
-of the Q&A layer, not a solved problem: the prose can still be locally wrong; only the footer is
-guaranteed correct.
+doing" question, the model at different times silently dropped a route from its answer, and once
+stated a wrong flagged/justified count. Free-form prose isn't a small enough surface to verify the
+way a single `flagged`/`matched_note_id` pair is, so instead of trying to parse and correct the
+model's sentences, **every answer gets a deterministic "Ground truth" footer** — one line per route,
+computed directly from `output.csv`, letting a reader catch any slip by comparison. This is a
+disclosed, known limitation of the Q&A layer, not a solved problem — only the footer is guaranteed
+correct.
 
 ```
 $ python -m watchdog.cli ask "why did Chennai-Bangalore get pricier in March 2025?"
 The price jump in early March 2025 was explained by heavy flooding on the Chennai-Bangalore
-highway, which forced longer detours and higher trip costs (see note N001). Subsequent weeks in
-March also saw higher costs, but those increases were not linked to a specific event in the data.
+highway... (see note N001). Subsequent weeks in March also saw higher costs, but those increases
+were not linked to a specific event in the data.
 
 Ground truth (verify the answer above against this):
 - Chennai-Bangalore: 3 flagged week(s), 1 justified (N001), 2 unexplained.
 ```
 
-## 8. How I convinced myself it was right
+A second, smaller bug was caught and fixed the same way after live testing: the citation-safety
+check that warns when the model cites a note id not in its grounding data was comparing against too
+narrow a set (only `matched_note_id` notes), so it false-flagged legitimate citations of near-miss
+notes quoted inside a `reason` string the model could actually see. Fixed to check against
+everything actually rendered into the prompt.
 
-- **The three sample rows reproduce exactly**, to the digit, on `cost_per_tonne_km`,
-  `vs_own_history`, `vs_similar_routes`, `flagged` and `matched_note_id`
-  (`tests/test_sample_rows.py`).
-- **One test per gate guardrail** (`tests/test_gate.py`): wrong route rejected, wrong window
-  rejected (using an N001-shaped note against Chennai-Bangalore 2025-03-10), "costs not affected"
-  rejected, improvement/normalisation rejected, out-of-dataset rejected (the N004 shape), a valid
-  match accepted, no note passing yields a blank `matched_note_id`, non-verbatim evidence rejected,
-  and the N003 open-ended window tested both active and expired.
-- **`eval/run_eval.py`** runs three checks, reported separately because they carry different
-  weight, not lumped into one pass/fail:
-  1. **Graders' sample check** -- the 3 rows FreightTiger actually published in
-     `data/sample_output_format_v2.csv`. This is the only genuinely *external* ground truth in the
-     eval: we didn't produce these labels, FreightTiger did, so a match here is real validation.
-  2. **Zero-tolerance hallucination audit** -- for every `No (justified)` row, independently
-     re-derives the gate check from the committed note cache (`outputs/notes_index.json`), not from
-     what `output.csv` itself claims, and fails the run on any mismatch. Also prints a citation
-     count per note -- the seven distractors sit at zero.
-  3. **Regression snapshot** -- `eval/expected_verdicts.csv`'s other 24 rows. Auditing this file
-     honestly: these are a transcription of this project's own committed `output.csv`, not an
-     independently hand-labelled set, so a match here proves *no drift*, not *correctness*. It's
-     still useful (a future code change that silently flips a verdict fails loudly) but it does not
-     carry the same evidentiary weight as (1) or (2), and the eval output now says so explicitly
-     rather than presenting all 27 rows as one undifferentiated "labelled set."
-- **What I did *not* verify**: the 7%/20% thresholds are a judgment call, not derived from a
-  labelled ground truth of "real" anomalies. `Short` and `Long` peer groups have only one peer
-  route each, so `vs_similar_routes` for those routes is noisier than for `Medium`. Weekly figures
-  rest on only 3-5 shipments each.
-- **On "numeric fields we grade":** the brief calls `vs_own_history`/`vs_similar_routes` numeric
-  fields, but `output.csv` writes them as descriptive strings (`"+29.5% vs this route's past
-  average"`) because that's the exact format FreightTiger's own `sample_output_format_v2.csv` uses
-  for those columns -- matching the given contract took priority over a literal reading of "numeric."
-  The raw floats used to compute those strings are not lost: they're in
-  `outputs/weekly_metrics.csv`'s `vs_own_history` / `vs_similar_routes` columns for anyone grading
-  numerically.
+---
 
-## 9. Reproducibility
+## 6. Guardrails — how "trust" is actually shown, not just claimed
 
-`python -m watchdog.cli repro` runs the pipeline 3x, clearing the prose cache (not the note
-enrichment cache -- that's factual extraction at temperature=0, not style, so it's treated as
-stable rather than regenerated every run; temperature=0 minimizes but does not guarantee
-bit-identical output from the hosted API -- see Limitations) between runs so the LLM
-genuinely regenerates every `reason` string each time. `route`, `week_of`, `cost_per_tonne_km`,
-`vs_own_history`, `vs_similar_routes`, `flagged` and `matched_note_id` are identical across all 3
-runs; only `reason` wording can vary. See `REPRO.md` for the actual result. The only place
-randomness could enter is the LLM, and `temperature=0` there; `--explain-mode template` produces
-the same verdicts and numbers with **zero** LLM calls, which is the structural proof that
-determinism doesn't depend on the model cooperating.
+The brief is explicit: *"a working demo isn't the bar."* Here's what backs that up, independently:
 
-## 10. Cost
+- **Hallucination**: the gate (§5.3) is the only place a verdict is decided, and has no LLM call.
+  `eval/run_eval.py`'s **hallucination audit** re-derives all 9 justified rows independently from
+  the committed note cache — not from what `output.csv` itself claims — and fails loudly on any
+  mismatch. It also prints a citation count per note; all 7 distractors sit at zero.
+- **Knowing the system is right**: `eval/run_eval.py` runs 3 separately-weighted checks:
+  1. **Graders' sample check** — the 3 rows FreightTiger actually published. The only genuinely
+     *external* ground truth here.
+  2. **Zero-tolerance hallucination audit** (above).
+  3. **Regression snapshot** against `eval/expected_verdicts.csv` — this is a transcription of this
+     project's own `output.csv`, so a match proves *no drift*, not *correctness*; the eval output
+     says so explicitly rather than presenting all 27 rows as one undifferentiated labeled set.
+  Backed by **139 passing unit/integration tests** (`pytest`), including one test per gate
+  guardrail (`tests/test_gate.py`).
+- **Reproducibility**: `python -m watchdog.cli repro` runs the pipeline 3x, clearing only the
+  *prose* cache between runs (not note enrichment, which is factual extraction at `temperature=0`,
+  treated as stable). `route`, `week_of`, `cost_per_tonne_km`, `vs_own_history`, `vs_similar_routes`,
+  `flagged`, and `matched_note_id` are identical across all 3 runs — only `reason` wording varies.
+  See `REPRO.md` for the actual diff result. `temperature=0` is the only place randomness could
+  enter, and `--explain-mode template` reproduces the same verdicts with **zero** LLM calls as a
+  structural (not just empirical) proof.
+- **Ran responsibly**: see §7 for the actual numbers — 42 calls for a full cold run, $0.00 real
+  cost, an honest log rather than an unbounded-spend black box.
 
-See `outputs/token_cost_log.md` for the full breakdown from one cold run (both caches cleared) over
-the entire shipment file: **10 notes to enrich + 27 candidates to explain = 37 "logical" LLM
-requests.** `llm.py` retries a call at a larger `max_tokens` if the model's response got cut off
-mid-reasoning (see `notes/enrich.py` / `explain.py` docstrings), so the *actual* call count in the
-log can run a little above 37 -- the log states the true number for that run, split by purpose.
-Actual cost either way: **$0.00** on the NVIDIA NIM free tier. `openai/gpt-oss-20b` has no direct
-OpenAI list price (it's open-weight); the log's "rough equivalent" uses the published third-party
-rate from [OpenRouter](https://openrouter.ai/openai/gpt-oss-20b) -- $0.03/1M input, $0.13/1M output
-tokens, checked 2026-08-19 -- as a stand-in, cited in `cli.py`.
+---
 
-## 11. Limitations
+## 7. LLM usage & cost — the numbers, one full cold run
 
-- The 7%/20% candidacy thresholds and the 14-day near-miss window are our judgment calls, not
-  derived from labelled ground truth.
-- `Short` and `Long` route types have only one peer route each in this dataset, so their
-  `vs_similar_routes` figure is a single-route comparison, not a true average.
-- The open-ended-note window (8 weeks) is anchored to this dataset's one open-ended note and the
-  sample's own two anchor rows; a different dataset with a different open-ended note would need
-  its own check, not a blind reuse of 8 weeks.
-- Retrieval `top_k=10` on a 10-note corpus means the vector search demonstrates ranking rather than
-  filtering; at a larger note count this would need re-tuning (and re-testing against dropped
-  matches the way we caught this one).
-- Weekly figures rest on 3-5 shipments per route-week -- not a lot of signal per data point.
-- Note enrichment (`notes/enrich.py`) runs at temperature=0, but that reduces variance on the
-  hosted API, it does not guarantee bit-identical output run to run. Confirmed by direct testing:
-  a field with genuine textual ambiguity (N009's `effective_to`, which has no date named in its
-  own text) returned different values on two separate cold runs before the prompt was tightened
-  to stop it from reusing the note's `date` field as a stand-in end date. Neither value ever
-  changed a `flagged`/`matched_note_id` result, since N009 fails the gate on a different condition
-  regardless -- but this cache is not provably deterministic the way `notes/gate.py` is.
+From `outputs/token_cost_log.md` (both caches cleared, entire shipment file):
+
+| Metric | Value |
+|---|---|
+| Model | `openai/gpt-oss-20b` via NVIDIA NIM (OpenAI-compatible), `temperature=0` |
+| Total LLM calls | **42** (10 note enrichment + 32 explanation — 27 candidates plus a few automatic retries at a larger `max_tokens` when a response got cut off mid-reasoning) |
+| Total input (prompt) tokens | **12,462** |
+| Total output (completion) tokens | **14,287** |
+| Actual cost | **$0.00** — NVIDIA NIM free tier |
+| Rough equivalent cost | **$0.0022** ($0.0004 in + $0.0019 out), using OpenRouter's published third-party rate for this open-weight model ($0.03/1M input, $0.13/1M output — no direct OpenAI list price exists since it's open-weight), checked 2026-08-19 |
+
+`llm.py` is the single wrapper every call goes through, so `CostTracker` can log call/token counts
+by purpose (`note_enrichment`, `explanation`, `qa`) — `ask` calls are tracked separately
+(`purpose="qa"`) and are **not** part of this graded pipeline cost log, since they're one call per
+user question, not part of the fixed `run`.
+
+---
+
+## 8. Design decisions & trade-offs — ours, not the brief's
+
+The brief leaves several things undefined on purpose (a test of judgment, not an oversight).
+Everything below is our call, isolated in `config.yaml`, easy to change:
+
+| Choice | Value | Why |
+|---|---|---|
+| Candidacy thresholds | `vs_own_history ≥ 7%` OR `vs_similar_routes ≥ 20%` | ~97th percentile of the 728 observed weekly changes — picks out clear outliers without dragging in ordinary noise. No sensitivity sweep was run; this is a judgment call. `python -m eval.threshold_analysis` recomputes both percentiles from the data directly (currently 97.2th/97.4th) rather than taking this row's word for it |
+| Near-miss window | ±14 days | How close a *failing* note has to be, by date, to be named in an unexplained row's `reason` as "the closest note that didn't hold up" |
+| N003's open-ended window | `effective_from + 8 weeks` | Derived from the sample's own two anchor rows — see §5.3 |
+| CSV quoting | `csv.QUOTE_MINIMAL` on write | The supplied sample isn't valid CSV as-is; we write one that round-trips through pandas |
+| Retrieval `top_k` | 10 (every note) | A smaller shortlist measurably dropped a real match — see §5.1 |
+| LLM model | `openai/gpt-oss-20b` on NVIDIA NIM | Verified working, open-weight, free tier — matches the brief's "prefer open-source/free-tier" |
+
+---
+
+## 9. Limitations (disclosed, not hidden)
+
+- The 7%/20% candidacy thresholds and the 14-day near-miss window are judgment calls, not derived
+  from a labeled ground truth of "real" anomalies.
+- `Short` and `Long` route types have only one peer route each, so `vs_similar_routes` there is a
+  single-route comparison, not a true average.
+- The 8-week open-ended-note window is anchored to this dataset's one open-ended note and the
+  sample's two anchor rows — a different dataset would need its own re-derivation, not a blind reuse.
+- `top_k=10` on a 10-note corpus demonstrates ranking, not filtering; a larger corpus would need
+  `top_k` re-tuned and re-tested against the same dropped-match failure mode.
+- Weekly figures rest on 3–5 shipments per route-week — not a lot of signal per data point.
+- `temperature=0` reduces variance on the hosted API but doesn't guarantee bit-identical output
+  run-to-run. Confirmed directly: a genuinely ambiguous field (`N009`'s `effective_to`, which names
+  no date in its own text) returned different values across two cold runs before the prompt was
+  tightened. It never changed a `flagged`/`matched_note_id` result (N009 fails the gate on a
+  different condition regardless), but the enrichment cache isn't provably deterministic the way
+  `notes/gate.py` is.
+- The Q&A layer's prose can still be locally wrong (§5.4) — only its ground-truth footer is
+  guaranteed correct, by construction, not by the model behaving.
+
+---
+
+## 10. Further improvements, if this went past 24 hours
+
+- Replace the percentile-based candidacy thresholds with ones calibrated against a real labeled
+  anomaly set, once one exists, instead of a heuristic sweep of this one dataset.
+- Move to a cross-encoder reranker (or just shrink `top_k` again with re-testing) once the note
+  corpus grows past the point where "rank everything" stays cheap and safe.
+- Ask the LLM for structured (function-calling / JSON-schema) output in `enrich.py`/`explain.py`
+  instead of prompt-based parsing, to cut the truncation-retry overhead visible in the call count.
+- Batch note-enrichment calls instead of one request per note, to cut round-trips as the corpus
+  grows.
+- Extend `ask.py`'s regex-based route/date parsing to handle fuzzier phrasing, or add an
+  LLM-based slot-extraction step with the current deterministic parser kept as a verified fallback.
+- Add CI (e.g. GitHub Actions) running `pytest` + `eval/run_eval.py` on every change, so a
+  regression in the gate invariant fails a build, not just a manual review.
+- A minimal read-only dashboard over `output.csv`/`weekly_metrics.csv` for a non-technical
+  stakeholder, instead of requiring someone to open a CSV.
+- Alerting (e.g. Slack/email) when a fresh run produces a new unexplained spike, rather than
+  requiring someone to diff `output.csv` by hand.
+
+---
+
+## 11. Deliverables checklist (per "What you need to hand in")
+
+| Asked for | Where |
+|---|---|
+| Working code | `src/watchdog/` |
+| Output CSV matching the sample format exactly | `output.csv` |
+| Short README: how it works, how built, how self-verified | this file |
+| Reproducibility check across 3 runs | `REPRO.md` |
+| Token/cost log for one full run | `outputs/token_cost_log.md` |
+| 10-min walkthrough | `WALKTHROUGH.md` |
+
+## 12. Self-assessment against "How we'll evaluate you"
+
+| Criterion | Where this is addressed |
+|---|---|
+| Does the core logic work? | §3 — every core requirement mapped to code + how it was verified |
+| Did you use AI meaningfully? | §5 — RAG retrieval with a documented failure mode we fixed, LLM note-understanding + phrasing, both cached and cost-tracked |
+| Can we trust it? | §6 — deterministic gate, independent hallucination audit, distractor notes at zero citations |
+| Does it hold up on repeat? | §6 — 3 identical runs on every graded column, plus a zero-LLM structural proof |
+| Did you run it responsibly? | §7 — 42 calls, $0.00 actual cost, full breakdown |
+| Is the code clean? | One module per pipeline stage (§2), 139 tests, `config.yaml` isolates every judgment call from the logic |
+| Can you explain your work? | This document + `WALKTHROUGH.md` |

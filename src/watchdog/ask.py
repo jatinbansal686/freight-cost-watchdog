@@ -281,7 +281,13 @@ def answer_question(question: str, ctx: QAContext, client: LLMClient, all_routes
         return "(LLM call unavailable -- here is the grounded data directly instead)\n\n" + context_block
 
     cited = set(re.findall(r"\bN0\d{2}\b", answer))
-    unknown = cited - set(ctx.note_texts)
+    # Compare against every note id actually present in the rendered context block, not just
+    # ctx.note_texts (matched_note_id only) -- a candidate row's reason can quote a near-miss note
+    # by id (e.g. "as noted in N009 ...") which the model legitimately sees and may cite, even
+    # though it never became a matched_note_id. Checking the narrower dict flagged that as a false
+    # "hallucination" even though the id was right there in what was actually shown to the model.
+    grounded_note_ids = set(re.findall(r"\bN0\d{2}\b", context_block))
+    unknown = cited - grounded_note_ids
     if unknown:
         answer += f"\n\n[warning: response cited note id(s) {sorted(unknown)} that weren't in the grounding data -- treat with caution]"
 

@@ -56,8 +56,11 @@ Use **Chennai-Bangalore, 2025-03-10** as the running example.
   Mumbai-Delhi 2025-06-02's query ranked two wrong-route notes above N003, whose text never
   mentions a route name, so N003 fell out of the shortlist and the gate never got to check it.
   With only 10 notes total, ranking everything and letting the gate -- not the retriever -- decide
-  relevance is the honest fix. This is exactly the kind of thing the reproducibility/eval harness
-  is for: it caught a real correctness bug, not just a demo bug.
+  relevance is the honest fix: a real correctness bug the eval harness caught, not just a demo bug.
+- **Ran responsibly, not just cheaply.** One full cold run: 42 LLM calls (10 note enrichment + 27
+  candidates' explanations, plus a couple of automatic retries), ~12.5k input / ~14.3k output
+  tokens, $0.00 actual on the NVIDIA NIM free tier for `openai/gpt-oss-20b` (~$0.002 at a published
+  third-party rate, for scale). Full breakdown in `outputs/token_cost_log.md`.
 
 ## 5. Q&A stretch goal, if there's time (1 min)
 
@@ -71,7 +74,11 @@ those rows -- no match means a fixed "no data" message and zero LLM calls, never
 answer is followed by a small deterministic "Ground truth" line per route, added because live
 testing caught the model itself both dropping a route from a multi-route answer and once
 misstating a justified/unexplained count -- free-form prose isn't as verifiable as `gate.py`'s four
-fixed conditions, so the footer is what makes any slip visible instead of trusted.
+fixed conditions, so the footer is what makes any slip visible instead of trusted. Live testing
+also caught a subtler bug in the safety net itself: the check that warns on an unrecognized cited
+note id was comparing against too narrow a set and false-flagged legitimate citations of near-miss
+notes quoted inside a `reason` string -- fixed to check against everything actually shown to the
+model.
 
 ## 6. How I checked it (1 min)
 
