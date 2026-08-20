@@ -1,5 +1,45 @@
 # Walkthrough script (~10 minutes)
 
+## 0. The whole assignment, in one diagram
+
+Open with this — it's the one picture that explains everything below: two raw files become 27
+investigated candidates, a deterministic gate is the only thing that ever decides "justified," and
+the same `output.csv` both is the graded submission and powers the live Q&A.
+
+```mermaid
+flowchart TD
+    A["Inputs\n2 raw CSVs: shipments, notes"] --> B["Analyze\nweekly cost + baselines + flag outliers"]
+    B --> C["Investigate\nsearch + read the 10 notes (RAG)"]
+    C --> D{{"Verify\nDETERMINISTIC GATE — the ONLY\nverdict authority · 0 LLM calls"}}
+    D --> E["Explain\nLLM phrases the gate's own facts"]
+    E --> F[("output.csv\nTHE GRADED SUBMISSION — 27 rows")]
+
+    F -.reads, never re-runs the pipeline.-> G["Your question\n\"why did X get pricier in March?\""]
+    G --> H["Parse + filter\ndeterministic scope — no match, no LLM call"]
+    H --> I["LLM phrases an answer\nfrom those filtered rows only"]
+    I --> J{{"+ Ground-truth footer\ndeterministic — always correct,\neven if the prose slips"}}
+
+    classDef data fill:#f2f2f4,stroke:#8a8f99,color:#10151f
+    classDef code fill:#eef2f7,stroke:#3b5f8a,color:#10151f
+    classDef embed fill:#e6f6f4,stroke:#0f766e,color:#10151f
+    classDef gate fill:#eafaf0,stroke:#178a4c,stroke-width:3px,color:#0f5c30
+    classDef ai fill:#fef3e0,stroke:#a15b0a,color:#10151f
+    classDef artifact fill:#fbf4e2,stroke:#c8971f,stroke-width:2px,color:#10151f
+
+    class A,G data
+    class B,H code
+    class C embed
+    class D,J gate
+    class E,I ai
+    class F artifact
+```
+
+Talking points while pointing at it: "proposes vs. decides" is the whole design — everything
+teal/amber (retrieval, note understanding, phrasing) only ever *proposes*; the two green boxes are
+the only places anything is ever *decided*, and neither one is an LLM call. The dotted arrow into
+the Q&A row is deliberate: it never re-runs the pipeline, it reads the artifact the pipeline already
+wrote.
+
 ## 1. Problem framing (1 min)
 
 Freight cost per route quietly drifts. Sometimes there's a real reason (flood, festival surcharge,
