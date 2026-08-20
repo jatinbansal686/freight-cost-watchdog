@@ -88,7 +88,11 @@ These are deliberately different things, kept distinct in the code and here:
   weeks strictly before the current week (no look-ahead). **If fewer than 8 prior weeks exist, we
   use all prior weeks available and do not pad or extrapolate** -- the exact count used is in the
   `baseline_weeks_used` column of `outputs/weekly_metrics.csv`. A route's very first week has zero
-  prior weeks, so `vs_own_history` is blank there.
+  prior weeks, so `vs_own_history` is blank there. Among the 27 candidates that made it into
+  `output.csv`, exactly two ran on a short history: **Delhi-Chennai 2024-01-08** (only 1 prior
+  week -- the route's second week ever) and **Delhi-Chennai 2024-02-05** (5 prior weeks). Both are
+  flagged `low_confidence` and carry a caveat in their `reason` text saying so; no other candidate
+  row has fewer than 8 prior weeks.
 - **vs. similar routes**: the unweighted average `cost_per_tonne_km`, in that same week, across the
   *other* routes sharing the same `route_type`. The route itself is excluded from its own peer
   average (`peer_count` in `weekly_metrics.csv`). Note: `Short` = {Delhi-Jaipur, Mumbai-Pune} and
@@ -105,7 +109,7 @@ out of the graded logic and easy to change in `config.yaml`.
 
 | Choice | Value | Why |
 |---|---|---|
-| Candidacy thresholds | `vs_own_history >= 7%` OR `vs_similar_routes >= 20%` | Roughly the 97th percentile of the 728 observed weekly changes -- picks out clear outliers without dragging in ordinary noise. No sensitivity sweep was run; this is a judgment call. |
+| Candidacy thresholds | `vs_own_history >= 7%` OR `vs_similar_routes >= 20%` | Roughly the 97th percentile of the 728 observed weekly changes -- picks out clear outliers without dragging in ordinary noise. No sensitivity sweep was run; this is a judgment call. Run `python -m eval.threshold_analysis` to recompute both percentiles from `outputs/weekly_metrics.csv` yourself rather than take this row's word for it -- it currently reports 97.2th/97.4th. |
 | Near-miss window | +/- 14 days | How close a *failing* note has to be, by date, to be named in an unexplained row's `reason` as "the closest note that didn't hold up," rather than saying nothing was found at all. |
 | CSV quoting | `csv.QUOTE_MINIMAL` on write | The supplied `sample_output_format_v2.csv` is not valid CSV (see below); we write a file that actually round-trips through `pandas`. |
 | `_v2` file is binding | `sample_output_format_v2.csv`, not `sample_output_format.csv` (named in the brief's prose) | It's the file we were given, and the only one that contains `matched_note_id`, which the brief explicitly names as part of the contract. |

@@ -1,4 +1,6 @@
-from watchdog.explain import ReasonContext, _validate_llm_reason
+import inspect
+
+from watchdog.explain import ReasonContext, build_reason, _validate_llm_reason
 from watchdog.notes.enrich import EnrichedNote
 
 
@@ -59,3 +61,35 @@ def test_an_invented_number_is_rejected():
     ctx = make_ctx()
     text = "N002 dated 2025-01-20 explains a +50.0% rise vs history and +22.5% vs similar routes."
     assert _validate_llm_reason(text, ctx) is False
+
+
+def test_build_reason_max_tokens_has_no_default():
+    """max_tokens must come from config.yaml (explain.max_tokens), not a hardcoded fallback here --
+    a bare default on this signature would be a second, un-synced source of truth for the same
+    number config.yaml already owns."""
+    sig = inspect.signature(build_reason)
+    assert sig.parameters["max_tokens"].default is inspect.Parameter.empty
+
+
+def test_build_reason_template_mode_needs_no_client_or_llm_call():
+    ctx = make_ctx()
+    text = build_reason(ctx, mode="template", client=None, cache={}, max_tokens=123)
+    assert "N002" in text
+    assert "29.5" in text and "22.5" in text
+
+
+def test_build_reason_uses_cache_before_calling_the_client():
+    ctx = make_ctx()
+    key_holder = {}
+
+    class _ExplodingClient:
+        available = True
+
+        def complete(self, *a, **kw):
+            raise AssertionError("should not be called when the cache already has this key")
+
+    from watchdog.explain import _cache_key
+
+    cache = {_cache_key(ctx): "a cached reason string"}
+    text = build_reason(ctx, mode="llm", client=_ExplodingClient(), cache=cache, max_tokens=123)
+    assert text == "a cached reason string"

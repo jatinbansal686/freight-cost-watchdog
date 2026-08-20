@@ -25,6 +25,19 @@ MONTHS = {
     "nov": 11, "november": 11, "dec": 12, "december": 12,
 }
 
+MONTH_NAMES = [
+    "", "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+]
+
+# Words/symbols that plausibly join two city names into one route reference -- "Delhi-Chennai",
+# "Delhi to Chennai", "Chennai and Delhi". Deliberately a fixed connector list, not a character-
+# distance window: a distance window (e.g. "within 20 chars") also matches "Delhi to Chennai and
+# Mumbai to Pune" as naming a spurious Mumbai-Delhi route, since "delhi" and "mumbai" end up within
+# 20 characters of each other despite belonging to two unrelated route mentions. Requiring an
+# actual connector token directly between the two city names avoids that.
+_ROUTE_CONNECTOR = r"(?:-|to|and|&|vs\.?|versus)?"
+
 SYSTEM_PROMPT = """You answer questions about a freight-cost analysis using ONLY the data given \
 below -- never state a number, route, week, or note that isn't in it. If the data doesn't answer \
 the question, say so plainly instead of guessing. Plain English, and cite a note id (e.g. N002) \
@@ -43,13 +56,25 @@ class ParsedQuery:
     year: int | None
     month: int | None
     ambiguous: bool
+    months_mentioned: list[int] = field(default_factory=list)
+    ambiguous_month: bool = False
+
+
+def _route_named(question_lower: str, city_a: str, city_b: str) -> bool:
+    """True if a route's two cities appear directly joined by a connector, in either order --
+    covers "Delhi-Chennai", "Delhi to Chennai", "from Chennai to Delhi", "Chennai and Delhi",
+    not just the exact hyphenated spelling. The two city names must be adjacent (only a connector
+    token or whitespace between them) so this can't bridge across an unrelated third city."""
+    a, b = re.escape(city_a.lower()), re.escape(city_b.lower())
+    connector = rf"\s*{_ROUTE_CONNECTOR}\s*"
+    pattern = rf"\b{a}\b{connector}\b{b}\b|\b{b}\b{connector}\b{a}\b"
+    return re.search(pattern, question_lower) is not None
 
 
 def parse_question(question: str, routes: list[str]) -> ParsedQuery:
     q = question.lower()
-    q_norm = q.replace("-", " ")
 
-    exact = [r for r in routes if r.lower().replace("-", " ") in q_norm]
+    exact = [r for r in routes if _route_named(q, *r.split("-"))]
     ambiguous = False
     if exact:
         matched_routes = exact
@@ -59,16 +84,21 @@ def parse_question(question: str, routes: list[str]) -> ParsedQuery:
         matched_routes = sorted({r for r in routes if any(c in r.split("-") for c in hit_cities)})
         ambiguous = len(matched_routes) > 1
 
-    month = None
+    months_mentioned: list[int] = []
     for name, num in MONTHS.items():
-        if re.search(rf"\b{name}\b", q):
-            month = num
-            break
+        if re.search(rf"\b{name}\b", q) and num not in months_mentioned:
+            months_mentioned.append(num)
+    months_mentioned.sort()
+    ambiguous_month = len(months_mentioned) > 1
+    month = months_mentioned[0] if len(months_mentioned) == 1 else None
 
     year_match = re.search(r"\b(20\d{2})\b", q)
     year = int(year_match.group(1)) if year_match else None
 
-    return ParsedQuery(routes=matched_routes, year=year, month=month, ambiguous=ambiguous)
+    return ParsedQuery(
+        routes=matched_routes, year=year, month=month, ambiguous=ambiguous,
+        months_mentioned=months_mentioned, ambiguous_month=ambiguous_month,
+    )
 
 
 @dataclass
@@ -81,6 +111,8 @@ class QAContext:
     note_texts: dict[str, str] = field(default_factory=dict)
     summary_by_route: dict[str, str] = field(default_factory=dict)
     no_data_reason: str | None = None
+    ambiguous_month: bool = False
+    months_mentioned: list[int] = field(default_factory=list)
 
 
 def _note_text(notes_df: pd.DataFrame, note_id: str) -> str | None:
@@ -148,6 +180,8 @@ def build_context(
         windowed_rows=windowed_rows,
         note_texts=note_texts,
         summary_by_route=summary_by_route,
+        ambiguous_month=parsed.ambiguous_month,
+        months_mentioned=parsed.months_mentioned,
     )
 
 
@@ -161,6 +195,13 @@ def _render_context_block(ctx: QAContext) -> str:
         lines.append(
             f"Note: the question matched multiple routes by city name ({', '.join(ctx.routes)}) "
             "-- answer for each separately and say which route each fact belongs to."
+        )
+    if ctx.ambiguous_month:
+        month_names = ", ".join(MONTH_NAMES[m] for m in ctx.months_mentioned)
+        lines.append(
+            f"Note: the question named multiple months ({month_names}) -- no single month was "
+            "filtered, so the data below covers all of them. Answer for each month separately "
+            "and say which month each fact belongs to; do not silently pick just one."
         )
     lines.append("Route summary:")
     lines.extend(f"- {line}" for line in ctx.summary_lines)

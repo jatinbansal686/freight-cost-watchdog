@@ -57,14 +57,21 @@ _ISO_DATE_TAIL_RE = re.compile(r"\d{4}-\d{2}-\d{2}\.$")
 def _looks_complete(content: str) -> bool:
     """True if truncated content still ends at a real sentence boundary.
 
-    Two lexical traps this guards against:
+    Three lexical traps this guards against:
     - A truncated decimal (e.g. "...a 22." cut off before "5%") ends in digit + period, which
       looks like a sentence end but isn't -- rejected, unless the digits form a full ISO date
       ("...on 2025-05-05.", a genuine sentence ending that shows up throughout this dataset's
       reasons and would otherwise trigger a needless retry).
-    - A truncation landing mid-quote leaves a dangling *open* quote as the last character. `"`
-      is normally a fine sentence-ending character (a quoted clause closing), but only if it's
-      actually closing something -- an odd total count of `"` means the last one is unmatched.
+    - A truncation landing mid-double-quote leaves a dangling *open* quote as the last
+      character. `"` is normally a fine sentence-ending character (a quoted clause closing),
+      but only if it's actually closing something -- an odd total count of `"` means the last
+      one is unmatched.
+    - A trailing `'` is ambiguous on its own: it's just as likely to be a truncated possessive
+      ("...the route'" cut off before "s") as a genuine closing single-quote. Unlike `"`, a
+      running parity count doesn't help here -- contractions/possessives make an odd apostrophe
+      count normal in ordinary prose. Instead, only accept a trailing `'` when it's closing real
+      sentence-ending punctuation ("...it worked.'"); anything else is treated as incomplete and
+      retried, since a wasted retry is a cheap price for never silently keeping cut-off text.
     """
     stripped = content.strip()
     if not stripped:
@@ -72,7 +79,9 @@ def _looks_complete(content: str) -> bool:
     if stripped.count('"') % 2 == 1:
         return False
     last = stripped[-1]
-    if last not in ".!?\"'":
+    if last == "'":
+        return len(stripped) >= 2 and stripped[-2] in ".!?"
+    if last not in ".!?\"":
         return False
     if last == "." and len(stripped) >= 2 and stripped[-2].isdigit() and not _ISO_DATE_TAIL_RE.search(stripped):
         return False

@@ -226,7 +226,7 @@ def build_reason(
     mode: str,
     client: LLMClient | None,
     cache: dict[str, str],
-    max_tokens: int = 500,
+    max_tokens: int,
 ) -> str:
     if mode == "template" or client is None or not client.available:
         return _clean(build_template_reason(ctx))

@@ -122,7 +122,7 @@ def _parse_json_response(raw: str) -> dict:
 
 
 def enrich_note(
-    client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int = 600
+    client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int
 ) -> EnrichedNote:
     user_prompt = f"note_id: {note_id}\ndate: {note_date}\nnote text: {raw_text}"
 
@@ -156,7 +156,7 @@ class NoteCache:
         self._changed = False
 
     def get_or_enrich(
-        self, client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int = 600
+        self, client: LLMClient, note_id: str, note_date: str, applies_to: str, raw_text: str, max_tokens: int
     ) -> EnrichedNote:
         if note_id in self._cached:
             return EnrichedNote(**self._cached[note_id])

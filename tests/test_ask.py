@@ -2,7 +2,7 @@
 The LLM-phrasing half (answer_question's call to client.complete) is intentionally not tested here,
 same rationale as explain.py: free-form prose isn't a thing to assert equality on. What matters
 for trust is that only in-scope rows ever reach the LLM, which is what these tests check."""
-from watchdog.ask import build_context, known_routes, parse_question
+from watchdog.ask import _render_context_block, _route_named, build_context, known_routes, parse_question
 
 
 def test_known_routes_are_the_seven_in_the_dataset(weekly_metrics_df):
@@ -47,6 +47,99 @@ def test_year_and_month_both_parsed(weekly_metrics_df):
     assert parsed.routes == ["Mumbai-Pune"]
     assert parsed.month == 9
     assert parsed.year == 2025
+
+
+# ---------------------------------------------------------------------------
+# Route matching: "X to Y" / "X and Y" phrasing, not just the exact "X-Y" spelling
+# ---------------------------------------------------------------------------
+
+
+def test_route_named_matches_hyphen_spelling():
+    assert _route_named("what happened on delhi-chennai", "Delhi", "Chennai") is True
+
+
+def test_route_named_matches_to_phrasing():
+    assert _route_named("why did delhi to chennai get pricier", "Delhi", "Chennai") is True
+
+
+def test_route_named_matches_reversed_order():
+    assert _route_named("compare chennai and delhi costs", "Delhi", "Chennai") is True
+
+
+def test_route_named_matches_from_x_to_y_phrasing():
+    assert _route_named("shipments from chennai to delhi last month", "Delhi", "Chennai") is True
+
+
+def test_route_named_false_when_cities_are_far_apart_in_the_sentence():
+    far_apart = "delhi has had a rough quarter overall, meanwhile completely separately chennai " \
+                "also saw some changes"
+    assert _route_named(far_apart, "Delhi", "Chennai") is False
+
+
+def test_route_named_false_when_only_one_city_present():
+    assert _route_named("what happened on the delhi route", "Delhi", "Chennai") is False
+
+
+def test_delhi_to_chennai_phrasing_resolves_to_the_one_route_not_the_ambiguous_fallback(weekly_metrics_df):
+    """Regression: this used to fall through to the city-union fallback and return every route
+    touching either city (Delhi-Chennai, Delhi-Jaipur, Mumbai-Delhi, Chennai-Bangalore) instead of
+    resolving to the one route actually meant."""
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("why did Delhi to Chennai get pricier", routes)
+    assert parsed.routes == ["Delhi-Chennai"]
+    assert parsed.ambiguous is False
+
+
+def test_from_x_to_y_full_sentence_resolves_cleanly(weekly_metrics_df):
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("what's the situation from Chennai to Delhi this quarter", routes)
+    assert parsed.routes == ["Delhi-Chennai"]
+    assert parsed.ambiguous is False
+
+
+def test_multiple_routes_named_with_to_phrasing_are_all_matched_not_ambiguous(weekly_metrics_df):
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("compare Delhi to Chennai and Mumbai to Pune", routes)
+    assert set(parsed.routes) == {"Delhi-Chennai", "Mumbai-Pune"}
+    assert parsed.ambiguous is False
+
+
+# ---------------------------------------------------------------------------
+# Month parsing: multiple months named in one question
+# ---------------------------------------------------------------------------
+
+
+def test_single_month_is_not_flagged_ambiguous(weekly_metrics_df):
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("Mumbai-Pune costs in September 2025", routes)
+    assert parsed.months_mentioned == [9]
+    assert parsed.ambiguous_month is False
+
+
+def test_two_months_named_are_both_captured_and_flagged_ambiguous(weekly_metrics_df):
+    """Regression: previously the parser took the first MONTHS-dict match and silently dropped
+    the second month with no indication anything was ignored."""
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("was Chennai-Bangalore pricier in February or March 2025", routes)
+    assert parsed.months_mentioned == [2, 3]
+    assert parsed.ambiguous_month is True
+    assert parsed.month is None  # no single month silently chosen
+    assert parsed.year == 2025
+
+
+def test_two_months_named_regardless_of_which_is_mentioned_first(weekly_metrics_df):
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("was it March or February that was worse", routes)
+    assert parsed.months_mentioned == [2, 3]  # sorted, not sentence order
+    assert parsed.ambiguous_month is True
+
+
+def test_no_month_named_is_not_ambiguous(weekly_metrics_df):
+    routes = known_routes(weekly_metrics_df)
+    parsed = parse_question("how is Mumbai-Pune doing overall", routes)
+    assert parsed.months_mentioned == []
+    assert parsed.ambiguous_month is False
+    assert parsed.month is None
 
 
 def test_build_context_no_route_returns_no_data_reason(weekly_metrics_df, output_df, notes_df):
